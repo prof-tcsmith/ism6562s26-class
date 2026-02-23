@@ -1,0 +1,126 @@
+# Week 03: PostgreSQL Sharding Lab
+# ISM 6562 - Big Data for Business Applications
+#
+# Demonstrates horizontal partitioning with PostgreSQL
+# 4-node cluster: 1 coordinator + 3 shards
+#
+# Quick Start:
+#   docker compose up -d
+#   docker compose ps
+#
+# Access:
+#   - pgAdmin: http://localhost:6050 (admin@example.com / admin)
+#   - Coordinator: localhost:5436
+#   - Shards: localhost:5433-5435
+
+services:
+  # Coordinator Node
+  postgres-coordinator:
+    image: postgres:16
+    container_name: postgres_coordinator
+    environment:
+      POSTGRES_USER: coordinator
+      POSTGRES_PASSWORD: coord_pass
+      POSTGRES_DB: distributed_db
+    ports:
+      - "5436:5432"
+    volumes:
+      - coordinator_data:/var/lib/postgresql/data
+    networks:
+      - shard_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coordinator"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Shard 1
+  postgres-shard1:
+    image: postgres:16
+    container_name: postgres_shard1
+    environment:
+      POSTGRES_USER: shard_user
+      POSTGRES_PASSWORD: shard_pass
+      POSTGRES_DB: shard1_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - shard1_data:/var/lib/postgresql/data
+    networks:
+      - shard_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shard_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Shard 2
+  postgres-shard2:
+    image: postgres:16
+    container_name: postgres_shard2
+    environment:
+      POSTGRES_USER: shard_user
+      POSTGRES_PASSWORD: shard_pass
+      POSTGRES_DB: shard2_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - shard2_data:/var/lib/postgresql/data
+    networks:
+      - shard_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shard_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Shard 3
+  postgres-shard3:
+    image: postgres:16
+    container_name: postgres_shard3
+    environment:
+      POSTGRES_USER: shard_user
+      POSTGRES_PASSWORD: shard_pass
+      POSTGRES_DB: shard3_db
+    ports:
+      - "5435:5432"
+    volumes:
+      - shard3_data:/var/lib/postgresql/data
+    networks:
+      - shard_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shard_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # pgAdmin for management
+  pgadmin:
+    container_name: pgadmin_sharding
+    image: dpage/pgadmin4:8.13
+    restart: always
+    ports:
+      - "6050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_ENABLE_PSQL: "True"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - shard_network
+    depends_on:
+      postgres-coordinator:
+        condition: service_healthy
+
+networks:
+  shard_network:
+    driver: bridge
+
+volumes:
+  coordinator_data:
+  shard1_data:
+  shard2_data:
+  shard3_data:
+  pgadmin_data:
+
