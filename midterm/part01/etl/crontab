@@ -1,0 +1,1 @@
+*/5 * * * * cd /app && /usr/local/bin/python etl_script.py >> /proc/1/fd/1 2>&1

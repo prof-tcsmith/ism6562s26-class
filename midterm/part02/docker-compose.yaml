@@ -1,0 +1,174 @@
+# Midterm Part 2: Sharded Sales Database
+# ISM 6562 - Big Data for Business Applications
+#
+# Architecture:
+#   - sales-shard-se: Southeast shard (FL, GA, TN) - 7 customers, ~24 orders
+#   - sales-shard-ne: Northeast shard (NC) - 1 customer, ~3 orders
+#   - hr-db:          Operational database (human resources)
+#   - warehouse-db:   Star-schema data warehouse
+#   - etl-service:    Python + cron ETL pipeline
+#   - pgadmin:        Web-based database management
+#
+# Quick Start:
+#   docker compose up -d
+#   docker compose ps
+#
+# Access:
+#   - pgAdmin:          http://localhost:8200 (student@student.com / student)
+#   - Sales Shard SE:   localhost:5511
+#   - Sales Shard NE:   localhost:5512
+#   - HR DB:            localhost:5502
+#   - Warehouse DB:     localhost:5503
+
+services:
+  # Sales Shard - Southeast (FL, GA, TN)
+  sales-shard-se:
+    image: postgres:16
+    container_name: midterm_sales_shard_se
+    environment:
+      POSTGRES_USER: student
+      POSTGRES_PASSWORD: student
+      POSTGRES_DB: sales
+    ports:
+      - "5511:5432"
+    volumes:
+      - sales_shard_se_data:/var/lib/postgresql/data
+      - ./init/sales-shard-se-init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - midterm_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U student -d sales"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Sales Shard - Northeast (NC and others)
+  sales-shard-ne:
+    image: postgres:16
+    container_name: midterm_sales_shard_ne
+    environment:
+      POSTGRES_USER: student
+      POSTGRES_PASSWORD: student
+      POSTGRES_DB: sales
+    ports:
+      - "5512:5432"
+    volumes:
+      - sales_shard_ne_data:/var/lib/postgresql/data
+      - ./init/sales-shard-ne-init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - midterm_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U student -d sales"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # HR Operational Database
+  hr-db:
+    image: postgres:16
+    container_name: midterm_hr_db
+    environment:
+      POSTGRES_USER: student
+      POSTGRES_PASSWORD: student
+      POSTGRES_DB: hr
+    ports:
+      - "5502:5432"
+    volumes:
+      - hr_data:/var/lib/postgresql/data
+      - ./init/hr-init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - midterm_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U student -d hr"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Data Warehouse Database
+  warehouse-db:
+    image: postgres:16
+    container_name: midterm_warehouse_db
+    environment:
+      POSTGRES_USER: student
+      POSTGRES_PASSWORD: student
+      POSTGRES_DB: warehouse
+    ports:
+      - "5503:5432"
+    volumes:
+      - warehouse_data:/var/lib/postgresql/data
+      - ./init/warehouse-init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - midterm_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U student -d warehouse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ETL Service (Python + Cron)
+  etl-service:
+    build: ./etl
+    container_name: midterm_etl
+    depends_on:
+      sales-shard-se:
+        condition: service_healthy
+      sales-shard-ne:
+        condition: service_healthy
+      hr-db:
+        condition: service_healthy
+      warehouse-db:
+        condition: service_healthy
+    environment:
+      SALES_SHARD_SE_DB_HOST: sales-shard-se
+      SALES_SHARD_SE_DB_PORT: "5432"
+      SALES_SHARD_SE_DB_NAME: sales
+      SALES_SHARD_SE_DB_USER: student
+      SALES_SHARD_SE_DB_PASSWORD: student
+      SALES_SHARD_NE_DB_HOST: sales-shard-ne
+      SALES_SHARD_NE_DB_PORT: "5432"
+      SALES_SHARD_NE_DB_NAME: sales
+      SALES_SHARD_NE_DB_USER: student
+      SALES_SHARD_NE_DB_PASSWORD: student
+      HR_DB_HOST: hr-db
+      HR_DB_PORT: "5432"
+      HR_DB_NAME: hr
+      HR_DB_USER: student
+      HR_DB_PASSWORD: student
+      WAREHOUSE_DB_HOST: warehouse-db
+      WAREHOUSE_DB_PORT: "5432"
+      WAREHOUSE_DB_NAME: warehouse
+      WAREHOUSE_DB_USER: student
+      WAREHOUSE_DB_PASSWORD: student
+    networks:
+      - midterm_network
+
+  # pgAdmin Web Interface
+  pgadmin:
+    image: dpage/pgadmin4:8.13
+    container_name: midterm_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: student@student.com
+      PGADMIN_DEFAULT_PASSWORD: student
+    ports:
+      - "8200:80"
+    depends_on:
+      sales-shard-se:
+        condition: service_healthy
+      sales-shard-ne:
+        condition: service_healthy
+      hr-db:
+        condition: service_healthy
+      warehouse-db:
+        condition: service_healthy
+    networks:
+      - midterm_network
+
+networks:
+  midterm_network:
+    driver: bridge
+
+volumes:
+  sales_shard_se_data:
+  sales_shard_ne_data:
+  hr_data:
+  warehouse_data:

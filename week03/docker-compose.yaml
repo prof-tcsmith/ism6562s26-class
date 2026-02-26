@@ -1,126 +1,58 @@
-# Week 03: PostgreSQL Sharding Lab
+# Week 03: PostgreSQL Performance and Indexing
 # ISM 6562 - Big Data for Business Applications
 #
-# Demonstrates horizontal partitioning with PostgreSQL
-# 4-node cluster: 1 coordinator + 3 shards
+# Architecture:
+#   - postgres:  Single PostgreSQL database with IoT sensor data
+#   - pgadmin:   Web-based database management
 #
 # Quick Start:
 #   docker compose up -d
 #   docker compose ps
 #
 # Access:
-#   - pgAdmin: http://localhost:6050 (admin@example.com / admin)
-#   - Coordinator: localhost:5436
-#   - Shards: localhost:5433-5435
+#   - pgAdmin:   http://localhost:8200 (student@student.com / student)
+#   - Postgres:  localhost:5501
 
 services:
-  # Coordinator Node
-  postgres-coordinator:
+  # PostgreSQL Database with IoT Sensor Data
+  postgres:
     image: postgres:16
-    container_name: postgres_coordinator
+    container_name: week03_postgres
     environment:
-      POSTGRES_USER: coordinator
-      POSTGRES_PASSWORD: coord_pass
-      POSTGRES_DB: distributed_db
+      POSTGRES_USER: student
+      POSTGRES_PASSWORD: student
+      POSTGRES_DB: sensordb
     ports:
-      - "5436:5432"
+      - "5501:5432"
     volumes:
-      - coordinator_data:/var/lib/postgresql/data
+      - sensor_data:/var/lib/postgresql/data
+      - ./init/sensor-init.sql:/docker-entrypoint-initdb.d/01-init.sql
     networks:
-      - shard_network
+      - week03_network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U coordinator"]
+      test: ["CMD-SHELL", "pg_isready -U student -d sensordb"]
       interval: 10s
       timeout: 5s
       retries: 5
 
-  # Shard 1
-  postgres-shard1:
-    image: postgres:16
-    container_name: postgres_shard1
-    environment:
-      POSTGRES_USER: shard_user
-      POSTGRES_PASSWORD: shard_pass
-      POSTGRES_DB: shard1_db
-    ports:
-      - "5433:5432"
-    volumes:
-      - shard1_data:/var/lib/postgresql/data
-    networks:
-      - shard_network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U shard_user"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Shard 2
-  postgres-shard2:
-    image: postgres:16
-    container_name: postgres_shard2
-    environment:
-      POSTGRES_USER: shard_user
-      POSTGRES_PASSWORD: shard_pass
-      POSTGRES_DB: shard2_db
-    ports:
-      - "5434:5432"
-    volumes:
-      - shard2_data:/var/lib/postgresql/data
-    networks:
-      - shard_network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U shard_user"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Shard 3
-  postgres-shard3:
-    image: postgres:16
-    container_name: postgres_shard3
-    environment:
-      POSTGRES_USER: shard_user
-      POSTGRES_PASSWORD: shard_pass
-      POSTGRES_DB: shard3_db
-    ports:
-      - "5435:5432"
-    volumes:
-      - shard3_data:/var/lib/postgresql/data
-    networks:
-      - shard_network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U shard_user"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # pgAdmin for management
+  # pgAdmin Web Interface
   pgadmin:
-    container_name: pgadmin_sharding
     image: dpage/pgadmin4:8.13
-    restart: always
-    ports:
-      - "6050:80"
+    container_name: week03_pgadmin
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@example.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-      PGADMIN_CONFIG_ENABLE_PSQL: "True"
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    networks:
-      - shard_network
+      PGADMIN_DEFAULT_EMAIL: student@student.com
+      PGADMIN_DEFAULT_PASSWORD: student
+    ports:
+      - "8200:80"
     depends_on:
-      postgres-coordinator:
+      postgres:
         condition: service_healthy
+    networks:
+      - week03_network
 
 networks:
-  shard_network:
+  week03_network:
     driver: bridge
 
 volumes:
-  coordinator_data:
-  shard1_data:
-  shard2_data:
-  shard3_data:
-  pgadmin_data:
-
+  sensor_data:

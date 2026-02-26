@@ -10,10 +10,11 @@ Clone this repository to your local machine:
 git clone https://github.com/prof-tcsmith/ism6562s26-class.git
 ```
 
-Navigate to the folder for the current week to find lab materials:
+If you already cloned it, pull the latest changes:
 
 ```bash
-cd ism6562s26-class/week02
+cd ism6562s26-class
+git pull
 ```
 
 ## Prerequisites
@@ -24,13 +25,29 @@ cd ism6562s26-class/week02
 
 ## Repository Structure
 
-Each week's lab materials are organized into their own folder:
-
 ```
 ism6562s26-class/
 ├── week02/
 │   └── docker-compose.yaml
+├── week03/
+│   ├── docker-compose.yaml
+│   └── init/
+├── midterm/
+│   ├── part01/   (Operational DBs, Star Schema, ETL)
+│   ├── part02/   (Sharding the Sales Database)
+│   └── part03/   (Cassandra for Order Ingestion)
 └── ...
 ```
 
-Navigate to the appropriate weekly folder and follow the instructions in the lab exercises document provided in class.
+Navigate to the appropriate folder and follow the instructions provided in the Canvas assignment.
+
+## Midterm Project
+
+The midterm has three independent parts. Run `docker compose down -v` between parts.
+
+```bash
+cd ism6562s26-class/midterm/part01
+docker compose up -d
+```
+
+See the assignment documents on Canvas for detailed instructions.
