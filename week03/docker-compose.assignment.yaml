@@ -1,0 +1,56 @@
+# Week 03 Assignment: PostgreSQL Performance and Indexing
+# ISM 6562 - Big Data for Business Applications
+#
+# Purpose: Assignment environment for indexing exercises
+#
+# Usage:
+#   docker compose -f docker-compose.assignment.yaml up -d
+#   docker compose -f docker-compose.assignment.yaml ps
+#
+# Access:
+#   - pgAdmin:   http://localhost:8200 (student@student.com / student)
+#   - Postgres:  localhost:5501
+
+services:
+  # PostgreSQL Database with IoT Sensor Data
+  postgres:
+    image: postgres:16
+    container_name: week03_assign_postgres
+    environment:
+      POSTGRES_USER: student
+      POSTGRES_PASSWORD: student
+      POSTGRES_DB: sensordb
+    ports:
+      - "5501:5432"
+    volumes:
+      - assign_sensor_data:/var/lib/postgresql/data
+      - ./init/sensor-init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - week03_assign_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U student -d sensordb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # pgAdmin Web Interface
+  pgadmin:
+    image: dpage/pgadmin4:8.13
+    container_name: week03_assign_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: student@student.com
+      PGADMIN_DEFAULT_PASSWORD: student
+    ports:
+      - "8200:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - week03_assign_network
+
+networks:
+  week03_assign_network:
+    driver: bridge
+
+volumes:
+  assign_sensor_data:

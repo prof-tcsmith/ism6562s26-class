@@ -1,13 +1,11 @@
-# Week 03: PostgreSQL Performance and Indexing
+# Week 03 Demo: PostgreSQL Performance and Indexing
 # ISM 6562 - Big Data for Business Applications
 #
-# Architecture:
-#   - postgres:  Single PostgreSQL database with IoT sensor data
-#   - pgadmin:   Web-based database management
+# Purpose: In-class demonstration environment
 #
-# Quick Start:
-#   docker compose up -d
-#   docker compose ps
+# Usage:
+#   docker compose -f docker-compose.demo.yaml up -d
+#   docker compose -f docker-compose.demo.yaml ps
 #
 # Access:
 #   - pgAdmin:   http://localhost:8200 (student@student.com / student)
@@ -17,7 +15,7 @@ services:
   # PostgreSQL Database with IoT Sensor Data
   postgres:
     image: postgres:16
-    container_name: week03_postgres
+    container_name: week03_demo_postgres
     environment:
       POSTGRES_USER: student
       POSTGRES_PASSWORD: student
@@ -25,10 +23,10 @@ services:
     ports:
       - "5501:5432"
     volumes:
-      - sensor_data:/var/lib/postgresql/data
+      - demo_sensor_data:/var/lib/postgresql/data
       - ./init/sensor-init.sql:/docker-entrypoint-initdb.d/01-init.sql
     networks:
-      - week03_network
+      - week03_demo_network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U student -d sensordb"]
       interval: 10s
@@ -38,7 +36,7 @@ services:
   # pgAdmin Web Interface
   pgadmin:
     image: dpage/pgadmin4:8.13
-    container_name: week03_pgadmin
+    container_name: week03_demo_pgadmin
     environment:
       PGADMIN_DEFAULT_EMAIL: student@student.com
       PGADMIN_DEFAULT_PASSWORD: student
@@ -48,11 +46,11 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - week03_network
+      - week03_demo_network
 
 networks:
-  week03_network:
+  week03_demo_network:
     driver: bridge
 
 volumes:
-  sensor_data:
+  demo_sensor_data:
