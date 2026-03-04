@@ -1,0 +1,1195 @@
+---
+title: "Lab 1: Table Partitioning in PostgreSQL"
+author: "Dr. Tim Smith"
+date: "March 4, 2026"
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    code-fold: false
+    code-copy: true
+    embed-resources: true
+    number-sections: true
+    page-layout: full
+execute:
+  eval: false
+---
+
+## Overview
+
+This lab walks through table partitioning in PostgreSQL --- splitting one large table into smaller, more manageable pieces that PostgreSQL can query selectively. You'll see how range, list, and hash partitioning work, measure the performance impact with `EXPLAIN ANALYZE`, and learn the operational trade-offs.
+
+### The Scenario
+
+The campus IoT deployment from Week 03 has grown to **500,000 rows** spanning January 2025 through February 2026. Queries are slowing down, and the operations team is asking: *"Can we do better --- on a single server --- before we start talking about distributing data across multiple machines?"*
+
+### What You'll Learn
+
+1. How to establish a **baseline** with `EXPLAIN ANALYZE` on a non-partitioned table
+2. **Range partitioning** --- split data by time periods (monthly)
+3. **List partitioning** --- split data by category (sensor unit type)
+4. **Hash partitioning** --- distribute data evenly across buckets
+5. How partitioning affects **indexes** and enables **instant data removal**
+
+### Prerequisites
+
+Start the Docker environment:
+
+```bash
+cd partitioning-lab
+docker compose up -d
+```
+
+Wait about 30--60 seconds for the database to initialize with 500K rows.
+
+## Setup and Connection
+
+```{python}
+import psycopg2
+import time
+
+# Connection parameters
+CONN_PARAMS = {
+    'host': 'localhost',
+    'port': 5502,
+    'dbname': 'sensor_db',
+    'user': 'student',
+    'password': 'student'
+}
+
+conn = psycopg2.connect(**CONN_PARAMS)
+conn.autocommit = True
+cur = conn.cursor()
+
+print("Connected to sensor_db on port 5502")
+```
+
+```text
+Connected to sensor_db on port 5502
+```
+
+```{python}
+# Verify the data loaded correctly
+cur.execute("SELECT COUNT(*) FROM sensor_readings")
+total = cur.fetchone()[0]
+
+cur.execute("SELECT MIN(reading_time), MAX(reading_time) FROM sensor_readings")
+min_ts, max_ts = cur.fetchone()
+
+cur.execute("SELECT COUNT(DISTINCT sensor_id) FROM sensor_readings")
+sensor_count = cur.fetchone()[0]
+
+print(f"Total readings:  {total:,}")
+print(f"Sensors:         {sensor_count}")
+print(f"Date range:      {min_ts.strftime('%Y-%m-%d')} to {max_ts.strftime('%Y-%m-%d')}")
+print(f"\nThat's {total // sensor_count:,} readings per sensor — about {total // sensor_count // 24} days of hourly data.")
+```
+
+```text
+Total readings:  500,000
+Sensors:         50
+Date range:      2025-01-01 to 2026-02-21
+
+That's 10,000 readings per sensor — about 416 days of hourly data.
+```
+
+## Baseline: Querying the Non-Partitioned Table
+
+Before we partition anything, let's establish a baseline. We'll use `EXPLAIN ANALYZE` (just like in Week 03) to see how PostgreSQL handles queries on the full 500K-row table.
+
+```{python}
+def explain_analyze(cursor, query, params=None):
+    """Run EXPLAIN ANALYZE and print the query plan."""
+    cursor.execute(f"EXPLAIN ANALYZE {query}", params)
+    plan = cursor.fetchall()
+    for row in plan:
+        print(row[0])
+    return plan
+```
+
+```{python}
+# Baseline: Query readings for a single month
+print("BASELINE: All readings for March 2025 (non-partitioned)")
+print("=" * 60)
+
+explain_analyze(cur, """
+    SELECT COUNT(*), AVG(value)
+    FROM sensor_readings
+    WHERE reading_time >= '2025-03-01'
+      AND reading_time <  '2025-04-01'
+""")
+
+print("\n** Notice: PostgreSQL must scan ALL 500K rows to find March data.")
+print("   There's no way to skip irrelevant months — it's all one big table.")
+```
+
+```text
+BASELINE: All readings for March 2025 (non-partitioned)
+============================================================
+Finalize Aggregate  (cost=7880.27..7880.28 rows=1 width=40) (actual time=9.005..11.286 rows=1 loops=1)
+  ->  Gather  (cost=7880.04..7880.25 rows=2 width=40) (actual time=8.994..11.276 rows=3 loops=1)
+        Workers Planned: 2
+        Workers Launched: 2
+        ->  Partial Aggregate  (cost=6880.04..6880.05 rows=1 width=40) (actual time=7.291..7.291 rows=1 loops=3)
+              ->  Parallel Seq Scan on sensor_readings  (cost=0.00..6802.00 rows=15608 width=6) (actual time=0.715..6.649 rows=12400 loops=3)
+                    Filter: ((reading_time >= '2025-03-01 00:00:00'::timestamp without time zone) AND (reading_time < '2025-04-01 00:00:00'::timestamp without time zone))
+                    Rows Removed by Filter: 154267
+Planning Time: 0.115 ms
+Execution Time: 11.310 ms
+
+** Notice: PostgreSQL must scan ALL 500K rows to find March data.
+   There's no way to skip irrelevant months — it's all one big table.
+```
+
+::: {.callout-important title="Key Observation"}
+PostgreSQL uses a **Parallel Seq Scan** --- it reads all 500K rows across 2 worker processes, each discarding ~154K non-matching rows. The total execution time is ~11.3 ms. With partitioning, we'll see this drop dramatically.
+:::
+
+```{python}
+# How big is this table on disk?
+cur.execute("""
+    SELECT pg_size_pretty(pg_total_relation_size('sensor_readings')) AS total_size,
+           pg_size_pretty(pg_relation_size('sensor_readings'))       AS table_size
+""")
+total_size, table_size = cur.fetchone()
+print(f"Table size (data only):  {table_size}")
+print(f"Total size (+ indexes):  {total_size}")
+```
+
+```text
+Table size (data only):  29 MB
+Total size (+ indexes):  39 MB
+```
+
+## Range Partitioning (by Month)
+
+Range partitioning is the most common strategy for **time-series data**. We'll split `sensor_readings` into monthly partitions. When you query for a specific month, PostgreSQL only scans that one partition --- this is called **partition pruning**.
+
+```{mermaid}
+%%| fig-cap: "Range partitioning splits one large table into monthly chunks. Queries that filter on `reading_time` only scan the relevant partition(s)."
+flowchart LR
+    subgraph "Non-Partitioned"
+        A["sensor_readings<br/>500K rows"]
+    end
+    subgraph "Range Partitioned"
+        B["readings_2025_01<br/>37,200 rows"]
+        C["readings_2025_02<br/>33,600 rows"]
+        D["readings_2025_03<br/>37,200 rows"]
+        E["...<br/>(12 more)"]
+    end
+    A -->|"PARTITION BY RANGE<br/>(reading_time)"| B
+    A --> C
+    A --> D
+    A --> E
+```
+
+### Step 1: Create the Partitioned Table
+
+We need a new table definition with `PARTITION BY RANGE`. Then we create one partition per month.
+
+```{python}
+# Create the range-partitioned table
+cur.execute("DROP TABLE IF EXISTS readings_by_month CASCADE")
+
+cur.execute("""
+    CREATE TABLE readings_by_month (
+        reading_id    INTEGER        NOT NULL,
+        sensor_id     INTEGER        NOT NULL,
+        reading_time  TIMESTAMP      NOT NULL,
+        value         NUMERIC(10,2)  NOT NULL,
+        unit          VARCHAR(10)    NOT NULL
+    ) PARTITION BY RANGE (reading_time)
+""")
+
+print("Created partitioned table: readings_by_month")
+print("Partition key: reading_time (RANGE)")
+```
+
+```text
+Created partitioned table: readings_by_month
+Partition key: reading_time (RANGE)
+```
+
+```{python}
+# Create monthly partitions from Jan 2025 through Mar 2026
+months = []
+year, month = 2025, 1
+while (year, month) <= (2026, 3):
+    next_month = month + 1
+    next_year = year
+    if next_month > 12:
+        next_month = 1
+        next_year = year + 1
+
+    partition_name = f"readings_{year}_{month:02d}"
+    start_date = f"{year}-{month:02d}-01"
+    end_date = f"{next_year}-{next_month:02d}-01"
+
+    cur.execute(f"""
+        CREATE TABLE {partition_name} PARTITION OF readings_by_month
+        FOR VALUES FROM ('{start_date}') TO ('{end_date}')
+    """)
+    months.append(partition_name)
+
+    month = next_month
+    year = next_year
+
+print(f"Created {len(months)} monthly partitions:")
+for m in months:
+    print(f"  {m}")
+```
+
+```text
+Created 15 monthly partitions:
+  readings_2025_01
+  readings_2025_02
+  readings_2025_03
+  readings_2025_04
+  readings_2025_05
+  readings_2025_06
+  readings_2025_07
+  readings_2025_08
+  readings_2025_09
+  readings_2025_10
+  readings_2025_11
+  readings_2025_12
+  readings_2026_01
+  readings_2026_02
+  readings_2026_03
+```
+
+```{python}
+# Copy data from the original table into the partitioned table
+start = time.time()
+
+cur.execute("""
+    INSERT INTO readings_by_month (reading_id, sensor_id, reading_time, value, unit)
+    SELECT reading_id, sensor_id, reading_time, value, unit
+    FROM sensor_readings
+""")
+
+elapsed = time.time() - start
+
+cur.execute("SELECT COUNT(*) FROM readings_by_month")
+count = cur.fetchone()[0]
+print(f"Copied {count:,} rows into partitioned table in {elapsed:.1f}s")
+```
+
+```text
+Copied 500,000 rows into partitioned table in 0.2s
+```
+
+```{python}
+# Check the distribution of rows across partitions
+print("Rows per partition:")
+print("=" * 40)
+for partition in months:
+    cur.execute(f"SELECT COUNT(*) FROM {partition}")
+    count = cur.fetchone()[0]
+    if count > 0:
+        bar = '#' * (count // 1000)
+        print(f"  {partition:20s}  {count:>7,}  {bar}")
+```
+
+```text
+Rows per partition:
+========================================
+  readings_2025_01       37,200  #####################################
+  readings_2025_02       33,600  #################################
+  readings_2025_03       37,200  #####################################
+  readings_2025_04       36,000  ####################################
+  readings_2025_05       37,200  #####################################
+  readings_2025_06       36,000  ####################################
+  readings_2025_07       37,200  #####################################
+  readings_2025_08       37,200  #####################################
+  readings_2025_09       36,000  ####################################
+  readings_2025_10       37,200  #####################################
+  readings_2025_11       36,000  ####################################
+  readings_2025_12       37,200  #####################################
+  readings_2026_01       37,200  #####################################
+  readings_2026_02       24,800  ########################
+```
+
+::: {.callout-note title="Distribution"}
+Each monthly partition holds ~33K--37K rows. February 2025 has fewer (28 days), and February 2026 is partial (data ends Feb 21). The distribution is relatively even because hourly sensor data produces roughly the same number of readings per month.
+:::
+
+### Step 2: Partition Pruning in Action
+
+Now let's run the same query --- March 2025 readings --- but against the partitioned table. Watch for partition pruning in the `EXPLAIN ANALYZE` output.
+
+```{python}
+print("PARTITIONED: All readings for March 2025")
+print("=" * 60)
+
+explain_analyze(cur, """
+    SELECT COUNT(*), AVG(value)
+    FROM readings_by_month
+    WHERE reading_time >= '2025-03-01'
+      AND reading_time <  '2025-04-01'
+""")
+
+print("\n** Look for 'readings_2025_03' in the plan — PostgreSQL only scans that partition!")
+print("   All other partitions are pruned (skipped) automatically.")
+```
+
+```text
+PARTITIONED: All readings for March 2025
+============================================================
+Aggregate  (cost=615.70..615.71 rows=1 width=40) (actual time=4.083..4.083 rows=1 loops=1)
+  ->  Seq Scan on readings_2025_03 readings_by_month  (cost=0.00..615.13 rows=114 width=16) (actual time=0.004..2.420 rows=37200 loops=1)
+        Filter: ((reading_time >= '2025-03-01 00:00:00'::timestamp without time zone) AND (reading_time < '2025-04-01 00:00:00'::timestamp without time zone))
+Planning Time: 0.183 ms
+Execution Time: 4.091 ms
+
+** Look for 'readings_2025_03' in the plan — PostgreSQL only scans that partition!
+   All other partitions are pruned (skipped) automatically.
+```
+
+```{mermaid}
+%%| fig-cap: "Partition pruning: the query planner identifies that only `readings_2025_03` can contain March data and skips all other partitions."
+flowchart LR
+    Q["Query:<br/>WHERE reading_time<br/>BETWEEN Mar 1 and Apr 1"] --> P["Query Planner"]
+    P -->|"PRUNED"| A["readings_2025_01"]
+    P -->|"PRUNED"| B["readings_2025_02"]
+    P -->|"SCAN"| C["readings_2025_03<br/>37,200 rows"]
+    P -->|"PRUNED"| D["readings_2025_04"]
+    P -->|"PRUNED"| E["... (10 more)"]
+    style C fill:#2d8659,color:#fff
+    style A fill:#999,color:#fff
+    style B fill:#999,color:#fff
+    style D fill:#999,color:#fff
+    style E fill:#999,color:#fff
+```
+
+::: {.callout-important title="Key Observation: 3x Speedup"}
+| Metric | Non-Partitioned | Partitioned (March only) |
+|--------|---:|---:|
+| Scan type | Parallel Seq Scan (all 500K rows) | Seq Scan on `readings_2025_03` only |
+| Rows scanned | 500,000 | 37,200 |
+| Execution Time | 11.3 ms | 4.1 ms |
+| **Speedup** | | **~3x faster** |
+
+The query only scans **one partition** (37K rows) instead of the entire table (500K rows). The "Rows Removed by Filter" line is gone entirely --- every row in that partition matches.
+:::
+
+```{python}
+# Compare: query spanning two months
+print("PARTITIONED: Readings for March-April 2025 (spans 2 partitions)")
+print("=" * 60)
+
+explain_analyze(cur, """
+    SELECT COUNT(*), AVG(value)
+    FROM readings_by_month
+    WHERE reading_time >= '2025-03-01'
+      AND reading_time <  '2025-05-01'
+""")
+
+print("\n** Now 2 partitions are scanned, but the rest are still pruned.")
+```
+
+```text
+PARTITIONED: Readings for March-April 2025 (spans 2 partitions)
+============================================================
+Aggregate  (cost=1212.30..1212.31 rows=1 width=40) (actual time=11.152..11.153 rows=1 loops=1)
+  ->  Append  (cost=0.00..1211.17 rows=224 width=16) (actual time=0.004..7.750 rows=73200 loops=1)
+        ->  Seq Scan on readings_2025_03 readings_by_month_1  (cost=0.00..615.13 rows=114 width=16) (actual time=0.004..2.424 rows=37200 loops=1)
+              Filter: ((reading_time >= '2025-03-01 00:00:00'::timestamp without time zone) AND (reading_time < '2025-05-01 00:00:00'::timestamp without time zone))
+        ->  Seq Scan on readings_2025_04 readings_by_month_2  (cost=0.00..594.92 rows=110 width=16) (actual time=0.006..2.454 rows=36000 loops=1)
+              Filter: ((reading_time >= '2025-03-01 00:00:00'::timestamp without time zone) AND (reading_time < '2025-05-01 00:00:00'::timestamp without time zone))
+Planning Time: 0.049 ms
+Execution Time: 11.168 ms
+
+** Now 2 partitions are scanned, but the rest are still pruned.
+```
+
+::: {.callout-note}
+The **Append** node combines results from two partitions (`readings_2025_03` and `readings_2025_04`). The remaining 13 partitions are completely pruned.
+:::
+
+### Step 2b: What Happens WITHOUT the Partition Key?
+
+Partition pruning only works when your `WHERE` clause includes the partition key. If you filter on something else (like `sensor_id`), PostgreSQL must scan **every partition**.
+
+```{python}
+# NO PRUNING: Query by sensor_id (not the partition key)
+print("NO PRUNING: Query by sensor_id on range-partitioned table")
+print("=" * 60)
+
+explain_analyze(cur, """
+    SELECT COUNT(*), AVG(value)
+    FROM readings_by_month
+    WHERE sensor_id = 10
+""")
+
+print("\n** Every partition is scanned! PostgreSQL can't skip any because")
+print("   sensor_id is NOT the partition key (reading_time is).")
+print("\n   Design rule: choose your partition key based on your most")
+print("   common query filter. If queries don't include it, no pruning.")
+```
+
+```text
+NO PRUNING: Query by sensor_id on range-partitioned table
+============================================================
+Finalize Aggregate  (cost=6953.41..6953.42 rows=1 width=40) (actual time=8.479..10.339 rows=1 loops=1)
+  ->  Gather  (cost=6953.18..6953.39 rows=2 width=40) (actual time=8.410..10.331 rows=3 loops=1)
+        Workers Planned: 2
+        Workers Launched: 2
+        ->  Partial Aggregate  (cost=5953.18..5953.19 rows=1 width=40) (actual time=6.565..6.569 rows=1 loops=3)
+              ->  Parallel Append  (cost=0.00..5950.00 rows=636 width=16) (actual time=0.006..6.361 rows=3333 loops=3)
+                    ->  Parallel Seq Scan on readings_2025_01 ...
+                    ->  Parallel Seq Scan on readings_2025_03 ...
+                    ->  Parallel Seq Scan on readings_2025_05 ...
+                    ... (all 14 partitions scanned)
+Planning Time: 0.244 ms
+Execution Time: 10.375 ms
+
+** Every partition is scanned! PostgreSQL can't skip any because
+   sensor_id is NOT the partition key (reading_time is).
+
+   Design rule: choose your partition key based on your most
+   common query filter. If queries don't include it, no pruning.
+```
+
+::: {.callout-warning title="Design Rule"}
+Choose your partition key based on your **most common query filter**. If queries don't filter on the partition key, PostgreSQL can't prune any partitions and must scan them all --- giving you no benefit over a non-partitioned table.
+:::
+
+### Step 3: The Primary Key Constraint
+
+Here's something that surprises many people: in a partitioned table, the **primary key must include the partition key**. Let's see why.
+
+```{python}
+# This will FAIL — PK on reading_id alone doesn't include partition key
+print("Attempting: PRIMARY KEY (reading_id) on partitioned table...")
+print("=" * 60)
+
+try:
+    cur.execute("""
+        ALTER TABLE readings_by_month
+        ADD CONSTRAINT pk_readings_month PRIMARY KEY (reading_id)
+    """)
+except psycopg2.Error as e:
+    print(f"ERROR: {e.pgerror.strip()}")
+    conn.rollback()
+
+print("\nWhy? Each partition enforces uniqueness independently.")
+print("Without the partition key, PostgreSQL can't guarantee global uniqueness.")
+```
+
+```text
+Attempting: PRIMARY KEY (reading_id) on partitioned table...
+============================================================
+ERROR: ERROR:  unique constraint on partitioned table must include all partitioning columns
+DETAIL:  PRIMARY KEY constraint on table "readings_by_month" lacks column "reading_time" which is part of the partition key.
+
+Why? Each partition enforces uniqueness independently.
+Without the partition key, PostgreSQL can't guarantee global uniqueness.
+```
+
+```{python}
+# This WORKS — include reading_time in the PK
+print("Attempting: PRIMARY KEY (reading_id, reading_time) — includes partition key...")
+print("=" * 60)
+
+cur.execute("""
+    ALTER TABLE readings_by_month
+    ADD CONSTRAINT pk_readings_month PRIMARY KEY (reading_id, reading_time)
+""")
+
+print("Success! PK must include the partition key column.")
+print("\nThis is a trade-off: partitioning gives you pruning,")
+print("but constrains how you can define uniqueness.")
+```
+
+```text
+Attempting: PRIMARY KEY (reading_id, reading_time) — includes partition key...
+============================================================
+Success! PK must include the partition key column.
+
+This is a trade-off: partitioning gives you pruning,
+but constrains how you can define uniqueness.
+```
+
+::: {.callout-note title="Why the PK Must Include the Partition Key"}
+Each partition is a physically separate table. PostgreSQL enforces uniqueness **per partition**, not globally. If the PK were just `(reading_id)`, two partitions could each contain a row with `reading_id = 1` --- PostgreSQL has no mechanism to check across partitions. Including `reading_time` in the PK ensures that a given `(reading_id, reading_time)` can only appear in one partition.
+:::
+
+### Step 4: What Happens When Data Doesn't Fit Any Partition?
+
+Our partitions cover Jan 2025 through Mar 2026. What if someone tries to insert a reading from 2024? PostgreSQL has no partition for that date range.
+
+```{python}
+# Try inserting a reading from 2024 — no partition covers this date
+print("MISSING PARTITION: Insert a reading from December 2024")
+print("=" * 60)
+
+try:
+    cur.execute("""
+        INSERT INTO readings_by_month (reading_id, sensor_id, reading_time, value, unit)
+        VALUES (999999, 1, '2024-12-15 12:00:00', 70.5, 'F')
+    """)
+except psycopg2.Error as e:
+    print(f"ERROR: {e.pgerror.strip()}")
+    conn.rollback()
+
+print("\nPostgreSQL rejects the insert because no partition covers 2024-12-15.")
+print("In production, this could silently drop data if your app doesn't handle the error!")
+```
+
+```text
+MISSING PARTITION: Insert a reading from December 2024
+============================================================
+ERROR: ERROR:  no partition of relation "readings_by_month" found for row
+DETAIL:  Partition key of the failing row contains (reading_time) = (2024-12-15 12:00:00).
+
+PostgreSQL rejects the insert because no partition covers 2024-12-15.
+In production, this could silently drop data if your app doesn't handle the error!
+```
+
+### Step 4b: Fix It with a DEFAULT Partition
+
+The fix is simple: create a **DEFAULT partition** to catch any rows that don't match an existing range. This acts as a safety net so inserts never fail due to missing partitions.
+
+```{python}
+# Create a DEFAULT partition to catch unmatched rows
+print("Creating a DEFAULT partition...")
+print("=" * 60)
+
+cur.execute("""
+    CREATE TABLE readings_default PARTITION OF readings_by_month DEFAULT
+""")
+
+print("Created: readings_default (catches any row outside defined ranges)\n")
+
+# Now try the same insert that failed before
+print("Retrying: Insert a reading from December 2024")
+print("-" * 60)
+
+cur.execute("""
+    INSERT INTO readings_by_month (reading_id, sensor_id, reading_time, value, unit)
+    VALUES (999999, 1, '2024-12-15 12:00:00', 70.5, 'F')
+""")
+
+# Verify it landed in the default partition
+cur.execute("SELECT COUNT(*) FROM readings_default")
+default_count = cur.fetchone()[0]
+print(f"Success! Row inserted into readings_default.")
+print(f"Rows in default partition: {default_count}")
+
+print("\nThe DEFAULT partition is a safety net — but monitor it.")
+print("A growing default partition means your ranges need updating.")
+
+# Clean up the test row
+cur.execute("DELETE FROM readings_default WHERE reading_id = 999999")
+```
+
+```text
+Creating a DEFAULT partition...
+============================================================
+Created: readings_default (catches any row outside defined ranges)
+
+Retrying: Insert a reading from December 2024
+------------------------------------------------------------
+Success! Row inserted into readings_default.
+Rows in default partition: 1
+
+The DEFAULT partition is a safety net — but monitor it.
+A growing default partition means your ranges need updating.
+```
+
+## List Partitioning (by Sensor Unit)
+
+Range partitioning works great for time-series. But what if you want to partition by **category**? For example, temperature, humidity, and pressure readings have different units (`F`, `%`, `hPa`) and different query patterns.
+
+List partitioning lets you assign specific values to specific partitions.
+
+```{python}
+# Create list-partitioned table by unit type
+cur.execute("DROP TABLE IF EXISTS readings_by_unit CASCADE")
+
+cur.execute("""
+    CREATE TABLE readings_by_unit (
+        reading_id    INTEGER        NOT NULL,
+        sensor_id     INTEGER        NOT NULL,
+        reading_time  TIMESTAMP      NOT NULL,
+        value         NUMERIC(10,2)  NOT NULL,
+        unit          VARCHAR(10)    NOT NULL
+    ) PARTITION BY LIST (unit)
+""")
+
+# Create one partition per unit type
+cur.execute("""
+    CREATE TABLE readings_temperature PARTITION OF readings_by_unit
+    FOR VALUES IN ('F')
+""")
+
+cur.execute("""
+    CREATE TABLE readings_humidity PARTITION OF readings_by_unit
+    FOR VALUES IN ('%')
+""")
+
+cur.execute("""
+    CREATE TABLE readings_pressure PARTITION OF readings_by_unit
+    FOR VALUES IN ('hPa')
+""")
+
+print("Created list-partitioned table with 3 partitions:")
+print("  readings_temperature  (unit = 'F')")
+print("  readings_humidity     (unit = '%')")
+print("  readings_pressure     (unit = 'hPa')")
+```
+
+```text
+Created list-partitioned table with 3 partitions:
+  readings_temperature  (unit = 'F')
+  readings_humidity     (unit = '%')
+  readings_pressure     (unit = 'hPa')
+```
+
+```{python}
+# Load data
+cur.execute("""
+    INSERT INTO readings_by_unit (reading_id, sensor_id, reading_time, value, unit)
+    SELECT reading_id, sensor_id, reading_time, value, unit
+    FROM sensor_readings
+""")
+
+# Check distribution
+print("Rows per partition:")
+print("=" * 50)
+for name, unit_val in [('readings_temperature', 'F'), ('readings_humidity', '%'), ('readings_pressure', 'hPa')]:
+    cur.execute(f"SELECT COUNT(*) FROM {name}")
+    count = cur.fetchone()[0]
+    pct = count / 500000 * 100
+    print(f"  {name:25s}  {count:>7,}  ({pct:.0f}%)")
+
+print("\nDistribution matches our sensor mix: 20 temp + 20 humidity + 10 pressure")
+```
+
+```text
+Rows per partition:
+==================================================
+  readings_temperature       200,000  (40%)
+  readings_humidity          200,000  (40%)
+  readings_pressure          100,000  (20%)
+
+Distribution matches our sensor mix: 20 temp + 20 humidity + 10 pressure
+```
+
+```{python}
+# Demonstrate list partition pruning
+print("LIST PARTITION PRUNING: Query only pressure readings")
+print("=" * 60)
+
+explain_analyze(cur, """
+    SELECT COUNT(*), AVG(value)
+    FROM readings_by_unit
+    WHERE unit = 'hPa'
+""")
+
+print("\n** Only the readings_pressure partition is scanned.")
+print("   Temperature and humidity partitions are completely skipped.")
+```
+
+```text
+LIST PARTITION PRUNING: Query only pressure readings
+============================================================
+Aggregate  (cost=1501.13..1501.14 rows=1 width=40) (actual time=11.990..11.991 rows=1 loops=1)
+  ->  Seq Scan on readings_pressure readings_by_unit  (cost=0.00..1499.60 rows=305 width=16) (actual time=0.005..7.195 rows=100000 loops=1)
+        Filter: ((unit)::text = 'hPa'::text)
+Planning Time: 0.073 ms
+Execution Time: 12.004 ms
+
+** Only the readings_pressure partition is scanned.
+   Temperature and humidity partitions are completely skipped.
+```
+
+::: {.callout-note}
+The plan shows `Seq Scan on readings_pressure` --- only the pressure partition (100K rows) is scanned. The temperature (200K) and humidity (200K) partitions are pruned entirely.
+:::
+
+## Hash Partitioning (by Sensor ID)
+
+What if your data doesn't have natural categories or time boundaries? **Hash partitioning** distributes rows evenly across a fixed number of buckets using a hash function. This is useful when you want even distribution but don't have a logical split.
+
+We'll hash by `sensor_id` to spread the load across 4 partitions.
+
+```{python}
+# Create hash-partitioned table
+cur.execute("DROP TABLE IF EXISTS readings_by_hash CASCADE")
+
+cur.execute("""
+    CREATE TABLE readings_by_hash (
+        reading_id    INTEGER        NOT NULL,
+        sensor_id     INTEGER        NOT NULL,
+        reading_time  TIMESTAMP      NOT NULL,
+        value         NUMERIC(10,2)  NOT NULL,
+        unit          VARCHAR(10)    NOT NULL
+    ) PARTITION BY HASH (sensor_id)
+""")
+
+# Create 4 hash partitions
+for i in range(4):
+    cur.execute(f"""
+        CREATE TABLE readings_hash_{i} PARTITION OF readings_by_hash
+        FOR VALUES WITH (MODULUS 4, REMAINDER {i})
+    """)
+
+print("Created hash-partitioned table with 4 buckets")
+print("Partition key: sensor_id (HASH, modulus 4)")
+```
+
+```text
+Created hash-partitioned table with 4 buckets
+Partition key: sensor_id (HASH, modulus 4)
+```
+
+```{python}
+# Load data
+cur.execute("""
+    INSERT INTO readings_by_hash (reading_id, sensor_id, reading_time, value, unit)
+    SELECT reading_id, sensor_id, reading_time, value, unit
+    FROM sensor_readings
+""")
+
+# Check distribution — should be roughly even
+print("Hash partition distribution:")
+print("=" * 50)
+for i in range(4):
+    cur.execute(f"SELECT COUNT(*) FROM readings_hash_{i}")
+    count = cur.fetchone()[0]
+    bar = '#' * (count // 5000)
+    print(f"  readings_hash_{i}  {count:>7,}  {bar}")
+
+print("\nHash partitioning gives roughly even distribution,")
+print("but you can't predict which sensor lands in which bucket.")
+```
+
+```text
+Hash partition distribution:
+==================================================
+  readings_hash_0  130,000  ##########################
+  readings_hash_1  150,000  ##############################
+  readings_hash_2  120,000  ########################
+  readings_hash_3  100,000  ####################
+
+Hash partitioning gives roughly even distribution,
+but you can't predict which sensor lands in which bucket.
+```
+
+```{python}
+# Hash pruning: query for a specific sensor_id
+print("HASH PARTITION PRUNING: Query sensor_id = 7")
+print("=" * 60)
+
+explain_analyze(cur, """
+    SELECT COUNT(*), AVG(value)
+    FROM readings_by_hash
+    WHERE sensor_id = 7
+""")
+
+print("\n** PostgreSQL hashes sensor_id=7 and goes directly to the right bucket.")
+print("   But range queries (sensor_id BETWEEN 5 AND 15) can't be pruned — ")
+print("   the hash function doesn't preserve ordering.")
+```
+
+```text
+HASH PARTITION PRUNING: Query sensor_id = 7
+============================================================
+Aggregate  (cost=1501.13..1501.14 rows=1 width=40) (actual time=4.549..4.550 rows=1 loops=1)
+  ->  Seq Scan on readings_hash_3 readings_by_hash  (cost=0.00..1499.60 rows=305 width=16) (actual time=0.007..4.040 rows=10000 loops=1)
+        Filter: (sensor_id = 7)
+        Rows Removed by Filter: 90000
+Planning Time: 0.075 ms
+Execution Time: 4.567 ms
+
+** PostgreSQL hashes sensor_id=7 and goes directly to the right bucket.
+   But range queries (sensor_id BETWEEN 5 AND 15) can't be pruned —
+   the hash function doesn't preserve ordering.
+```
+
+```{python}
+# Demonstrate: range queries CAN'T be pruned with hash partitioning
+print("HASH PARTITION: Range query (sensor_id BETWEEN 5 AND 15)")
+print("=" * 60)
+
+explain_analyze(cur, """
+    SELECT COUNT(*), AVG(value)
+    FROM readings_by_hash
+    WHERE sensor_id BETWEEN 5 AND 15
+""")
+
+print("\n** All 4 partitions are scanned — hash partitioning can't prune range queries.")
+print("   Use range partitioning if your queries involve ranges.")
+```
+
+```text
+HASH PARTITION: Range query (sensor_id BETWEEN 5 AND 15)
+============================================================
+Finalize Aggregate  (cost=7378.18..7378.19 rows=1 width=40) (actual time=13.460..16.364 rows=1 loops=1)
+  ->  Gather  (cost=7377.96..7378.17 rows=2 width=40) (actual time=13.373..16.353 rows=3 loops=1)
+        Workers Planned: 2
+        Workers Launched: 2
+        ->  Partial Aggregate  (cost=6377.96..6377.97 rows=1 width=40) (actual time=11.754..11.756 rows=1 loops=3)
+              ->  Parallel Append  (cost=0.00..6374.77 rows=636 width=16) (actual time=0.006..9.941 rows=36667 loops=3)
+                    ->  Parallel Seq Scan on readings_hash_1 ...
+                    ->  Parallel Seq Scan on readings_hash_0 ...
+                    ->  Parallel Seq Scan on readings_hash_2 ...
+                    ->  Parallel Seq Scan on readings_hash_3 ...
+Planning Time: 0.110 ms
+Execution Time: 16.391 ms
+
+** All 4 partitions are scanned — hash partitioning can't prune range queries.
+   Use range partitioning if your queries involve ranges.
+```
+
+::: {.callout-warning title="Hash Partitioning Limitation"}
+Hash partitioning only supports **equality pruning** (`WHERE sensor_id = 7`). Range queries (`BETWEEN`, `>`, `<`) must scan all partitions because the hash function doesn't preserve value ordering --- sensor_id 5 and sensor_id 6 could be in completely different buckets.
+:::
+
+## Per-Partition Indexes
+
+When you create an index on a partitioned table, PostgreSQL creates a **separate index on each partition**. This means each index is smaller and more cache-friendly than one giant index.
+
+```{python}
+# Create an index on the range-partitioned table
+cur.execute("""
+    CREATE INDEX idx_readings_month_sensor
+    ON readings_by_month (sensor_id, reading_time)
+""")
+
+# Also create the same index on the original non-partitioned table for comparison
+cur.execute("""
+    CREATE INDEX idx_readings_orig_sensor
+    ON sensor_readings (sensor_id, reading_time)
+""")
+
+print("Created indexes on both tables. Let's compare sizes.")
+```
+
+```text
+Created indexes on both tables. Let's compare sizes.
+```
+
+```{python}
+# Compare index sizes: partitioned vs non-partitioned
+print("INDEX SIZE COMPARISON")
+print("=" * 60)
+
+# Non-partitioned: single large index
+cur.execute("""
+    SELECT pg_size_pretty(pg_relation_size('idx_readings_orig_sensor'))
+""")
+orig_size = cur.fetchone()[0]
+print(f"Non-partitioned index:  {orig_size} (one big index)")
+
+# Partitioned: many small indexes
+print(f"\nPartitioned indexes (one per partition):")
+total_part_size = 0
+for partition in months:
+    cur.execute(f"""
+        SELECT indexname, pg_relation_size(indexname::regclass)
+        FROM pg_indexes
+        WHERE tablename = '{partition}'
+          AND indexdef LIKE '%sensor_id%reading_time%'
+    """)
+    rows = cur.fetchall()
+    for idx_name, idx_bytes in rows:
+        total_part_size += idx_bytes
+        cur.execute(f"SELECT pg_size_pretty({idx_bytes}::bigint)")
+        pretty = cur.fetchone()[0]
+        print(f"  {partition:20s}  {pretty}")
+
+cur.execute(f"SELECT pg_size_pretty({total_part_size}::bigint)")
+total_pretty = cur.fetchone()[0]
+print(f"\nTotal partitioned index size: {total_pretty}")
+print(f"\nEach partition's index is small enough to fit in memory,")
+print(f"making lookups within a partition very fast.")
+```
+
+```text
+INDEX SIZE COMPARISON
+============================================================
+Non-partitioned index:  15 MB (one big index)
+
+Partitioned indexes (one per partition):
+  readings_2025_01      1160 kB
+  readings_2025_02      1048 kB
+  readings_2025_03      1160 kB
+  readings_2025_04      1120 kB
+  readings_2025_05      1160 kB
+  readings_2025_06      1120 kB
+  readings_2025_07      1160 kB
+  readings_2025_08      1160 kB
+  readings_2025_09      1120 kB
+  readings_2025_10      1160 kB
+  readings_2025_11      1120 kB
+  readings_2025_12      1160 kB
+  readings_2026_01      1160 kB
+  readings_2026_02      784 kB
+  readings_2026_03      8192 bytes
+
+Total partitioned index size: 15 MB
+
+Each partition's index is small enough to fit in memory,
+making lookups within a partition very fast.
+```
+
+::: {.callout-tip title="Why Smaller Indexes Matter"}
+The total size is the same (~15 MB), but each partition's index is only ~1 MB. Smaller indexes are more likely to stay in PostgreSQL's buffer cache (RAM), making lookups faster. When a query prunes to a single partition, PostgreSQL only loads that partition's small index into memory --- not the full 15 MB index.
+:::
+
+## Instant Data Removal
+
+One of partitioning's biggest operational advantages: **dropping a partition is nearly instant**, while `DELETE` must scan and remove rows one by one. This matters when you need to archive or purge old data.
+
+```{python}
+# Time a DELETE on the non-partitioned table
+cur.execute("""
+    SELECT COUNT(*) FROM sensor_readings
+    WHERE reading_time >= '2025-01-01' AND reading_time < '2025-02-01'
+""")
+jan_count = cur.fetchone()[0]
+print(f"January 2025 readings: {jan_count:,}")
+
+start = time.time()
+cur.execute("""
+    DELETE FROM sensor_readings
+    WHERE reading_time >= '2025-01-01' AND reading_time < '2025-02-01'
+""")
+delete_time = time.time() - start
+print(f"\nDELETE {jan_count:,} rows: {delete_time:.3f}s")
+
+# Re-insert the data so we don't lose it
+cur.execute("""
+    INSERT INTO sensor_readings (reading_id, sensor_id, reading_time, value, unit)
+    SELECT reading_id, sensor_id, reading_time, value, unit
+    FROM readings_by_month
+    WHERE reading_time >= '2025-01-01' AND reading_time < '2025-02-01'
+""")
+print("(Re-inserted data for comparison)")
+```
+
+```text
+January 2025 readings: 37,200
+
+DELETE 37,200 rows: 0.032s
+(Re-inserted data for comparison)
+```
+
+```{python}
+# Time a DROP PARTITION (detach + drop)
+start = time.time()
+cur.execute("""
+    ALTER TABLE readings_by_month
+    DETACH PARTITION readings_2025_01
+""")
+cur.execute("DROP TABLE readings_2025_01")
+drop_time = time.time() - start
+
+print(f"DROP partition:  {drop_time:.3f}s")
+print(f"DELETE rows:     {delete_time:.3f}s")
+print(f"\nDrop is ~{delete_time/drop_time:.0f}x faster!")
+print("\nDropping a partition is a metadata operation — no row-by-row scanning.")
+print("This is why time-series databases almost always use partitioning.")
+```
+
+```text
+DROP partition:  0.003s
+DELETE rows:     0.032s
+
+Drop is ~10x faster!
+
+Dropping a partition is a metadata operation — no row-by-row scanning.
+This is why time-series databases almost always use partitioning.
+```
+
+::: {.callout-important title="10x Faster Data Removal"}
+| Method | Time | How It Works |
+|--------|---:|------|
+| `DELETE ... WHERE` | 0.032s | Scans table, marks rows dead, creates WAL entries, leaves dead tuples for VACUUM |
+| `DROP PARTITION` | 0.003s | Updates catalog metadata and removes the file --- no row scanning |
+
+At scale (millions of rows), the difference becomes even more dramatic --- `DELETE` can take minutes while `DROP` remains sub-second.
+:::
+
+```{python}
+# Re-create the January partition for completeness
+cur.execute("""
+    CREATE TABLE readings_2025_01 PARTITION OF readings_by_month
+    FOR VALUES FROM ('2025-01-01') TO ('2025-02-01')
+""")
+cur.execute("""
+    INSERT INTO readings_by_month (reading_id, sensor_id, reading_time, value, unit)
+    SELECT reading_id, sensor_id, reading_time, value, unit
+    FROM sensor_readings
+    WHERE reading_time >= '2025-01-01' AND reading_time < '2025-02-01'
+""")
+print("Re-created January 2025 partition.")
+```
+
+```text
+Re-created January 2025 partition.
+```
+
+## Per-Partition Maintenance
+
+Another advantage of partitioning: **maintenance operations can target individual partitions** instead of locking the entire table. With a non-partitioned table, `VACUUM` and `REINDEX` must process all 500K rows. With partitions, you can maintain one month at a time.
+
+```{python}
+# Compare VACUUM on non-partitioned vs a single partition
+print("MAINTENANCE: VACUUM on non-partitioned vs single partition")
+print("=" * 60)
+
+# VACUUM the full non-partitioned table
+start = time.time()
+cur.execute("VACUUM ANALYZE sensor_readings")
+full_vacuum = time.time() - start
+print(f"VACUUM ANALYZE sensor_readings (all 500K rows):  {full_vacuum:.3f}s")
+
+# VACUUM just one partition (March 2025)
+start = time.time()
+cur.execute("VACUUM ANALYZE readings_2025_03")
+part_vacuum = time.time() - start
+print(f"VACUUM ANALYZE readings_2025_03 (one month):     {part_vacuum:.3f}s")
+
+print(f"\nPer-partition VACUUM is ~{full_vacuum/part_vacuum:.0f}x faster!")
+
+# REINDEX comparison
+print("\n" + "=" * 60)
+print("MAINTENANCE: REINDEX on non-partitioned vs single partition")
+print("=" * 60)
+
+start = time.time()
+cur.execute("REINDEX TABLE sensor_readings")
+full_reindex = time.time() - start
+print(f"REINDEX sensor_readings (all indexes):   {full_reindex:.3f}s")
+
+start = time.time()
+cur.execute("REINDEX TABLE readings_2025_03")
+part_reindex = time.time() - start
+print(f"REINDEX readings_2025_03 (one month):    {part_reindex:.3f}s")
+
+print(f"\nPer-partition REINDEX is ~{full_reindex/part_reindex:.0f}x faster!")
+print("\nIn production, you can schedule maintenance on old partitions")
+print("during off-peak hours without affecting current-month queries.")
+```
+
+```text
+MAINTENANCE: VACUUM on non-partitioned vs single partition
+============================================================
+VACUUM ANALYZE sensor_readings (all 500K rows):  0.069s
+VACUUM ANALYZE readings_2025_03 (one month):     0.028s
+
+Per-partition VACUUM is ~2x faster!
+
+============================================================
+MAINTENANCE: REINDEX on non-partitioned vs single partition
+============================================================
+REINDEX sensor_readings (all indexes):   0.238s
+REINDEX readings_2025_03 (one month):    0.024s
+
+Per-partition REINDEX is ~10x faster!
+
+In production, you can schedule maintenance on old partitions
+during off-peak hours without affecting current-month queries.
+```
+
+::: {.callout-tip title="Production Benefit"}
+In production, you can schedule VACUUM and REINDEX on old (cold) partitions during off-peak hours without affecting queries on the current month's (hot) partition. This reduces lock contention and maintenance windows.
+:::
+
+## Summary: Partitioning Strategies Compared
+
+| Strategy | Partition Key | Best For | Pruning Works With | Limitation |
+|----------|--------------|----------|-------------------|------------|
+| **Range** | `reading_time` | Time-series, date ranges | Range queries (`BETWEEN`, `>=`, `<`) | Uneven partition sizes if data is seasonal |
+| **List** | `unit` | Categories, regions, types | Equality queries (`=`, `IN`) | Must list every possible value |
+| **Hash** | `sensor_id` | Even distribution, point lookups | Equality queries (`=`) only | No range pruning, can't predict placement |
+
+### Key Takeaways
+
+1. **Partition pruning** is the main performance benefit --- queries only scan relevant partitions
+2. **Primary keys must include the partition key** --- a trade-off for partition independence
+3. **Per-partition indexes** are smaller and more cache-friendly
+4. **DROP partition is instant** --- critical for data lifecycle management
+5. **Per-partition maintenance** --- VACUUM and REINDEX target one partition at a time, reducing lock scope
+6. **DEFAULT partitions** catch rows that don't match any defined range --- a safety net for production
+7. All of this happens on a **single server** --- no network overhead, no distributed coordination
+
+### When to Partition (and When Not To)
+
+**Good candidates:**
+
+- Very large tables (tens of millions of rows)
+- Queries that naturally filter on the partition key
+- Need to drop old data quickly
+- Tight maintenance windows
+
+**Poor candidates:**
+
+- Small tables (planner overhead outweighs benefits)
+- Queries that rarely filter on the partition key
+- Fewer than ~10 million rows (indexes alone are usually sufficient)
+
+**Caveat:** too many partitions (1000+) can slow the query planner, because it must evaluate every partition before deciding which to prune. Start without partitioning and add it when performance degrades on a large table with a partitionable filter column.
+
+## Exercises
+
+Try these on your own:
+
+### Exercise 1: Pruning Investigation
+
+Run `EXPLAIN ANALYZE` on the range-partitioned table with these queries. Which ones trigger pruning?
+
+```sql
+-- Query A: specific date range
+SELECT * FROM readings_by_month WHERE reading_time = '2025-06-15 12:00:00';
+
+-- Query B: filter on value (not the partition key)
+SELECT * FROM readings_by_month WHERE value > 80;
+
+-- Query C: filter on sensor_id (not the partition key)
+SELECT * FROM readings_by_month WHERE sensor_id = 10;
+```
+
+### Exercise 2: Add a New Partition
+
+Add an April 2026 partition to `readings_by_month`. What happens if you try to insert a reading dated April 15, 2026 *before* creating the partition?
+
+### Exercise 3: Default Partition
+
+Create a `DEFAULT` partition to catch rows that don't match any existing range. Try inserting a reading from 2024. Where does it go?
+
+## Bridge to Lab 2
+
+Partitioning is powerful --- but it all happens on **one server**. What happens when:
+
+- That server runs out of disk space?
+- You need more CPU for concurrent queries?
+- You need geographic locality (data near users)?
+
+That's when you need **sharding** --- distributing data across multiple independent database servers. In Lab 2, you'll build a manually-sharded PostgreSQL cluster and experience the trade-offs firsthand.
+
+## Cleanup
+
+When you're done, shut down the Docker environment:
+
+```bash
+cd partitioning-lab
+docker compose down -v
+```
+
+```{python}
+# Close the database connection
+cur.close()
+conn.close()
+print("Connection closed.")
+```
+
+```text
+Connection closed.
+```
