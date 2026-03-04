@@ -1,0 +1,60 @@
+# Week 04: PostgreSQL Partitioning Lab
+# ISM 6562 - Big Data for Business Applications
+#
+# Single PostgreSQL instance with 500K sensor readings
+# for exploring range, list, and hash partitioning.
+#
+# Quick Start:
+#   docker compose up -d
+#   docker compose ps
+#
+# Access:
+#   - PostgreSQL: localhost:5502 (student / student)
+#   - pgAdmin: http://localhost:8201 (student@student.com / student)
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: partitioning_lab_pg
+    environment:
+      POSTGRES_USER: student
+      POSTGRES_PASSWORD: student
+      POSTGRES_DB: sensor_db
+    ports:
+      - "5502:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d
+    networks:
+      - lab_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U student"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:8.13
+    container_name: partitioning_lab_pgadmin
+    restart: always
+    ports:
+      - "8201:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: student@student.com
+      PGADMIN_DEFAULT_PASSWORD: student
+      PGADMIN_CONFIG_ENABLE_PSQL: "True"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - lab_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+networks:
+  lab_network:
+    driver: bridge
+
+volumes:
+  pg_data:
+  pgadmin_data:
