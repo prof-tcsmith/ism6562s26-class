@@ -2228,7 +2228,7 @@ vertical-align: -.125em;
 </tr>
 <tr class="even">
 <td><strong>Due Date</strong></td>
-<td>TBD</td>
+<td>See Canvas</td>
 </tr>
 </tbody>
 </table>
@@ -2259,7 +2259,7 @@ Learning Objectives
 <h3 data-number="2.1" class="anchored" data-anchor-id="why-distributed-sql"><span class="header-section-number">2.1</span> Why Distributed SQL?</h3>
 <p>In Parts 1–3 of this project, you built a polyglot persistence architecture using PostgreSQL (for ACID transactions, reference data, and analytics) and Cassandra (for high-velocity write ingestion). You saw how manual sharding in Part 2 distributes data across nodes but introduces complexity—cross-shard queries, distributed transactions, and shard rebalancing all become your problem.</p>
 <p><strong>Distributed SQL databases</strong> aim to solve this: they provide the familiar SQL interface and ACID guarantees of PostgreSQL while automatically distributing data across a cluster. They handle sharding, replication, and rebalancing transparently so applications can scale horizontally without rewriting queries or managing shard keys manually.</p>
-<p>These systems occupy different positions on the CAP spectrum, make different trade-offs between consistency and availability, and vary widely in SQL compatibility. Some are extensions of existing databases (Citus on PostgreSQL, Vitess on MySQL), while others are entirely new architectures (CockroachDB, TiDB, Google Cloud Spanner). Understanding this landscape is essential for making informed technology decisions in data-intensive applications.</p>
+<p>These systems occupy different positions on the CAP spectrum, make different trade-offs between consistency and availability, and vary widely in SQL compatibility. Some are extensions of existing databases (Citus on PostgreSQL), while others are entirely new architectures (CockroachDB, TiDB, OceanBase, Apache Ignite). Understanding this landscape is essential for making informed technology decisions in data-intensive applications.</p>
 <div class="callout callout-style-default callout-tip callout-titled" title="Connection to Parts 1--3">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
@@ -2337,15 +2337,15 @@ Connection to Parts 1–3
 </tr>
 <tr class="odd">
 <td>7</td>
-<td><strong>Google Cloud Spanner</strong></td>
-<td>Globally Distributed SQL</td>
-<td>Google’s planet-scale database using TrueTime for external consistency across globally distributed replicas</td>
+<td><strong>OceanBase</strong></td>
+<td>Paxos-Based Distributed SQL</td>
+<td>Ant Group’s Paxos-based distributed database providing MySQL and Oracle compatibility with LSM-tree storage and multi-tenant zone architecture</td>
 </tr>
 <tr class="even">
 <td>8</td>
-<td><strong>Vitess</strong></td>
-<td>MySQL Sharding Middleware</td>
-<td>YouTube-scale sharding middleware that orchestrates a fleet of MySQL instances with transparent routing and online schema changes</td>
+<td><strong>Apache Ignite</strong></td>
+<td>Memory-First Distributed SQL</td>
+<td>Apache’s memory-first distributed SQL platform providing ANSI-99 SQL, ACID transactions, and co-located compute across a horizontally scalable cluster</td>
 </tr>
 <tr class="odd">
 <td>9</td>
@@ -2418,7 +2418,7 @@ One System Per Team
 <p>What consistency and transaction guarantees does the system provide?</p>
 <ul>
 <li>What isolation levels are supported (read committed, snapshot, serializable)?</li>
-<li>How are distributed transactions handled (two-phase commit, Calvin, Spanner-style)?</li>
+<li>How are distributed transactions handled (two-phase commit, Paxos, Raft, Calvin)?</li>
 <li>What is the performance cost of strong consistency (latency, throughput)?</li>
 <li>How does this compare to PostgreSQL’s serializable isolation and Cassandra’s tunable consistency?</li>
 </ul>
@@ -2603,7 +2603,7 @@ Plagiarism Policy
 <p>Submitting work that is not your own—including copying from other groups, submitting AI-generated text without attribution, or presenting vendor slides as original analysis—is a violation of the USF Academic Integrity Policy and will be handled accordingly.</p>
 </div>
 </div>
-<p><strong>Due Date: TBD</strong> — Slide deck submitted to Canvas before the start of class on presentation day.</p>
+<p><strong>Due Date: See Canvas</strong> — Slide deck submitted to Canvas before the start of class on presentation day.</p>
 <p>If you have questions about this assignment, please post in the course discussion board or attend office hours. Good luck!</p>
 </section>
 
