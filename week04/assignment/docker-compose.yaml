@@ -1,0 +1,54 @@
+# Week 04 Individual Assignment: Table Partitioning
+# ISM 6562 - Big Data for Business Applications
+#
+# Purpose: Assignment environment for partitioning exercises
+#
+# Usage:
+#   docker compose up -d
+#   docker compose ps
+#
+# Access:
+#   - pgAdmin:   http://localhost:8202 (student@student.com / student)
+#   - Postgres:  localhost:5503
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: week04_assign_postgres
+    environment:
+      POSTGRES_USER: student
+      POSTGRES_PASSWORD: student
+      POSTGRES_DB: ecommerce_db
+    ports:
+      - "5503:5432"
+    volumes:
+      - assign_ecommerce_data:/var/lib/postgresql/data
+      - ./init/ecommerce-init.sql:/docker-entrypoint-initdb.d/01-init.sql
+    networks:
+      - week04_assign_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U student -d ecommerce_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    image: dpage/pgadmin4:8.13
+    container_name: week04_assign_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: student@student.com
+      PGADMIN_DEFAULT_PASSWORD: student
+    ports:
+      - "8202:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - week04_assign_network
+
+networks:
+  week04_assign_network:
+    driver: bridge
+
+volumes:
+  assign_ecommerce_data:
