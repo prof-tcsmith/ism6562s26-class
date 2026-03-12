@@ -1,0 +1,90 @@
+
+networks:
+  cassandra-network:
+    driver: bridge
+
+volumes:
+  cassandra_data1:
+  cassandra_data2:
+  cassandra_data3:
+
+services:
+  cassandra-node1:
+    image: cassandra:4.1
+    container_name: cassandra-node1
+    ports:
+      - "9042:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=ProductionCluster
+      - CASSANDRA_SEEDS=cassandra-node1
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      - CASSANDRA_NUM_TOKENS=256
+      - CASSANDRA_LISTEN_ADDRESS=cassandra-node1
+      - CASSANDRA_BROADCAST_ADDRESS=cassandra-node1
+      - CASSANDRA_BROADCAST_RPC_ADDRESS=cassandra-node1
+    volumes:
+      - cassandra_data1:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "nodetool status | grep UN"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - cassandra-network
+
+  cassandra-node2:
+    image: cassandra:4.1
+    container_name: cassandra-node2
+    ports:
+      - "9043:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=ProductionCluster
+      - CASSANDRA_SEEDS=cassandra-node1
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      - CASSANDRA_NUM_TOKENS=256
+      - CASSANDRA_LISTEN_ADDRESS=cassandra-node2
+      - CASSANDRA_BROADCAST_ADDRESS=cassandra-node2
+      - CASSANDRA_BROADCAST_RPC_ADDRESS=cassandra-node2
+    volumes:
+      - cassandra_data2:/var/lib/cassandra
+    depends_on:
+      cassandra-node1:
+        # Only depend on node1; do NOT gate on node2 status elsewhere
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nodetool status | grep UN"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - cassandra-network
+
+  cassandra-node3:
+    image: cassandra:4.1
+    container_name: cassandra-node3
+    ports:
+      - "9044:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=ProductionCluster
+      - CASSANDRA_SEEDS=cassandra-node1
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      - CASSANDRA_NUM_TOKENS=256
+      - CASSANDRA_LISTEN_ADDRESS=cassandra-node3
+      - CASSANDRA_BROADCAST_ADDRESS=cassandra-node3
+      - CASSANDRA_BROADCAST_RPC_ADDRESS=cassandra-node3
+    volumes:
+      - cassandra_data3:/var/lib/cassandra
+    depends_on:
+      cassandra-node1:
+        # Do NOT gate on node2’s “healthy”; only wait for node1
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nodetool status | grep UN"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - cassandra-network
