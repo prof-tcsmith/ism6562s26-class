@@ -1,3 +1,6 @@
+# Week 05 — 3-Node Cassandra Cluster
+# This spins up a peer-to-peer Cassandra ring with no master node.
+# Connect to any node via cqlsh: docker exec -it cassandra-node1 cqlsh
 
 networks:
   cassandra-network:
@@ -13,16 +16,19 @@ services:
     image: cassandra:4.1
     container_name: cassandra-node1
     ports:
-      - "9042:9042"
+      - "9042:9042"       # CQL native transport (client connections)
     environment:
+      # All nodes must share the same cluster name to form a ring
       - CASSANDRA_CLUSTER_NAME=ProductionCluster
+      # Seed nodes are the first contact point for gossip protocol discovery.
+      # New nodes contact a seed to learn about the rest of the cluster.
       - CASSANDRA_SEEDS=cassandra-node1
-      - CASSANDRA_DC=datacenter1
-      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+      # Number of virtual nodes (vnodes) per physical node.
+      # More vnodes = more even data distribution across the ring.
       - CASSANDRA_NUM_TOKENS=256
+      # Required for Docker: tells Cassandra to listen on this container's
+      # network hostname instead of localhost
       - CASSANDRA_LISTEN_ADDRESS=cassandra-node1
-      - CASSANDRA_BROADCAST_ADDRESS=cassandra-node1
-      - CASSANDRA_BROADCAST_RPC_ADDRESS=cassandra-node1
     volumes:
       - cassandra_data1:/var/lib/cassandra
     healthcheck:
@@ -41,17 +47,12 @@ services:
     environment:
       - CASSANDRA_CLUSTER_NAME=ProductionCluster
       - CASSANDRA_SEEDS=cassandra-node1
-      - CASSANDRA_DC=datacenter1
-      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
       - CASSANDRA_NUM_TOKENS=256
       - CASSANDRA_LISTEN_ADDRESS=cassandra-node2
-      - CASSANDRA_BROADCAST_ADDRESS=cassandra-node2
-      - CASSANDRA_BROADCAST_RPC_ADDRESS=cassandra-node2
     volumes:
       - cassandra_data2:/var/lib/cassandra
     depends_on:
       cassandra-node1:
-        # Only depend on node1; do NOT gate on node2 status elsewhere
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "nodetool status | grep UN"]
@@ -69,17 +70,12 @@ services:
     environment:
       - CASSANDRA_CLUSTER_NAME=ProductionCluster
       - CASSANDRA_SEEDS=cassandra-node1
-      - CASSANDRA_DC=datacenter1
-      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
       - CASSANDRA_NUM_TOKENS=256
       - CASSANDRA_LISTEN_ADDRESS=cassandra-node3
-      - CASSANDRA_BROADCAST_ADDRESS=cassandra-node3
-      - CASSANDRA_BROADCAST_RPC_ADDRESS=cassandra-node3
     volumes:
       - cassandra_data3:/var/lib/cassandra
     depends_on:
       cassandra-node1:
-        # Do NOT gate on node2’s “healthy”; only wait for node1
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "nodetool status | grep UN"]
