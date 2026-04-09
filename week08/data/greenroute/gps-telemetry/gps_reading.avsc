@@ -1,0 +1,47 @@
+{
+  "type": "record",
+  "name": "GPSReading",
+  "namespace": "com.greenroute.telemetry",
+  "doc": "Single GPS reading from a delivery truck telematics device",
+  "fields": [
+    {
+      "name": "truck_id",
+      "type": "string"
+    },
+    {
+      "name": "timestamp",
+      "type": "string",
+      "doc": "ISO-8601 UTC timestamp"
+    },
+    {
+      "name": "lat",
+      "type": "double"
+    },
+    {
+      "name": "lon",
+      "type": "double"
+    },
+    {
+      "name": "speed_mph",
+      "type": "double"
+    },
+    {
+      "name": "heading",
+      "type": "int",
+      "doc": "Compass bearing in degrees, 0-359"
+    },
+    {
+      "name": "fuel_level_pct",
+      "type": "double"
+    },
+    {
+      "name": "engine_rpm",
+      "type": "int"
+    },
+    {
+      "name": "odometer",
+      "type": "int",
+      "doc": "Odometer reading in miles"
+    }
+  ]
+}

@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 700" font-family="'Segoe UI', Arial, sans-serif">
+  <defs>
+    <marker id="arrow-star" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#555"/>
+    </marker>
+    <filter id="shadow-star" x="-2%" y="-2%" width="104%" height="104%">
+      <feDropShadow dx="1" dy="1" stdDeviation="2" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <!-- Title -->
+  <text x="480" y="28" text-anchor="middle" font-size="17" font-weight="bold" fill="#2c3e50">Data Warehouse (warehouse-db) — Star Schema</text>
+
+  <!-- ========== FACT TABLE (center) ========== -->
+  <g filter="url(#shadow-star)">
+    <rect x="330" y="235" width="300" height="230" rx="6" fill="#fff" stroke="#c0392b" stroke-width="2.5"/>
+    <rect x="330" y="235" width="300" height="36" rx="6" fill="#c0392b"/>
+    <rect x="330" y="258" width="300" height="13" fill="#c0392b"/>
+    <text x="480" y="260" text-anchor="middle" font-size="15" font-weight="bold" fill="#fff">fact_sales</text>
+    <text x="345" y="293" font-size="12" fill="#333">🔑  sale_key                  SERIAL PK</text>
+    <line x1="340" y1="300" x2="620" y2="300" stroke="#eee" stroke-width="1"/>
+    <text x="345" y="318" font-size="12" fill="#c0392b">🔗  date_key                 INTEGER FK</text>
+    <text x="345" y="338" font-size="12" fill="#c0392b">🔗  customer_key          INTEGER FK</text>
+    <text x="345" y="358" font-size="12" fill="#c0392b">🔗  product_key            INTEGER FK</text>
+    <line x1="340" y1="365" x2="620" y2="365" stroke="#eee" stroke-width="1"/>
+    <text x="345" y="383" font-size="12" fill="#555">     source_order_id       INTEGER UQ</text>
+    <text x="345" y="403" font-size="12" fill="#16a085" font-weight="bold">📊  quantity                   INTEGER</text>
+    <text x="345" y="423" font-size="12" fill="#16a085" font-weight="bold">📊  unit_price                NUMERIC</text>
+    <text x="345" y="443" font-size="12" fill="#16a085" font-weight="bold">📊  total_price               NUMERIC</text>
+  </g>
+  <!-- Fact label -->
+  <text x="480" y="480" text-anchor="middle" font-size="10" fill="#888">FACT TABLE — one row per order</text>
+  <text x="480" y="493" text-anchor="middle" font-size="10" fill="#16a085">📊 = Measures (what you SUM, AVG, COUNT)</text>
+
+  <!-- ========== dim_date (top) ========== -->
+  <g filter="url(#shadow-star)">
+    <rect x="310" y="40" width="340" height="155" rx="6" fill="#fff" stroke="#2980b9" stroke-width="2"/>
+    <rect x="310" y="40" width="340" height="32" rx="6" fill="#2980b9"/>
+    <rect x="310" y="60" width="340" height="12" fill="#2980b9"/>
+    <text x="480" y="62" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">dim_date</text>
+    <text x="325" y="92" font-size="12" fill="#333">🔑  date_key        INTEGER PK (YYYYMMDD)</text>
+    <text x="325" y="112" font-size="12" fill="#333">     full_date          DATE</text>
+    <text x="325" y="132" font-size="12" fill="#333">     year, quarter, month, day_of_month</text>
+    <text x="325" y="152" font-size="12" fill="#333">     month_name, day_name</text>
+    <text x="325" y="172" font-size="12" fill="#333">     day_of_week, is_weekend</text>
+    <text x="325" y="189" font-size="10" fill="#888">Pre-calculated — no date math needed in queries</text>
+  </g>
+
+  <!-- ========== dim_customer (left) ========== -->
+  <g filter="url(#shadow-star)">
+    <rect x="10" y="260" width="275" height="180" rx="6" fill="#fff" stroke="#27ae60" stroke-width="2"/>
+    <rect x="10" y="260" width="275" height="32" rx="6" fill="#27ae60"/>
+    <rect x="10" y="280" width="275" height="12" fill="#27ae60"/>
+    <text x="147" y="282" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">dim_customer</text>
+    <text x="25" y="312" font-size="12" fill="#333">🔑  customer_key            SERIAL PK</text>
+    <text x="25" y="332" font-size="12" fill="#555">     source_customer_id   INTEGER UQ</text>
+    <text x="25" y="352" font-size="12" fill="#333">     first_name                  VARCHAR</text>
+    <text x="25" y="372" font-size="12" fill="#333">     last_name                   VARCHAR</text>
+    <text x="25" y="392" font-size="12" fill="#333">     email                          VARCHAR</text>
+    <text x="25" y="412" font-size="12" fill="#333">     city, state</text>
+    <text x="25" y="433" font-size="10" fill="#888">Surrogate key decouples from sales-db</text>
+  </g>
+
+  <!-- ========== dim_product (right) ========== -->
+  <g filter="url(#shadow-star)">
+    <rect x="675" y="260" width="275" height="165" rx="6" fill="#fff" stroke="#e67e22" stroke-width="2"/>
+    <rect x="675" y="260" width="275" height="32" rx="6" fill="#e67e22"/>
+    <rect x="675" y="280" width="275" height="12" fill="#e67e22"/>
+    <text x="812" y="282" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">dim_product</text>
+    <text x="690" y="312" font-size="12" fill="#333">🔑  product_key           SERIAL PK</text>
+    <text x="690" y="332" font-size="12" fill="#555">     source_product_id  INTEGER UQ</text>
+    <text x="690" y="352" font-size="12" fill="#333">     product_name         VARCHAR</text>
+    <text x="690" y="372" font-size="12" fill="#333">     category                  VARCHAR</text>
+    <text x="690" y="392" font-size="12" fill="#333">     unit_price                NUMERIC</text>
+    <text x="690" y="418" font-size="10" fill="#888">Surrogate key decouples from sales-db</text>
+  </g>
+
+  <!-- ========== dim_employee (bottom) ========== -->
+  <g filter="url(#shadow-star)">
+    <rect x="285" y="520" width="390" height="170" rx="6" fill="#fff" stroke="#8e44ad" stroke-width="2"/>
+    <rect x="285" y="520" width="390" height="32" rx="6" fill="#8e44ad"/>
+    <rect x="285" y="540" width="390" height="12" fill="#8e44ad"/>
+    <text x="480" y="542" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">dim_employee</text>
+    <text x="300" y="572" font-size="12" fill="#333">🔑  employee_key                  SERIAL PK</text>
+    <text x="300" y="592" font-size="12" fill="#555">     source_employee_id         INTEGER UQ</text>
+    <text x="300" y="612" font-size="12" fill="#333">     first_name, last_name, email, job_title</text>
+    <text x="300" y="632" font-size="12" fill="#e74c3c" font-weight="bold">     department_name              VARCHAR  ← denormalized</text>
+    <text x="300" y="652" font-size="12" fill="#e74c3c" font-weight="bold">     department_location          VARCHAR  ← denormalized</text>
+    <text x="300" y="680" font-size="10" fill="#888">Dept info stored directly — no JOIN to departments table needed</text>
+  </g>
+
+  <!-- ========== Relationship lines ========== -->
+  <!-- dim_date → fact_sales (top to center) -->
+  <line x1="480" y1="195" x2="480" y2="235" stroke="#2980b9" stroke-width="2" marker-end="url(#arrow-star)"/>
+  <text x="488" y="215" font-size="10" fill="#2980b9" font-weight="bold">date_key</text>
+
+  <!-- dim_customer → fact_sales (left to center) -->
+  <line x1="285" y1="350" x2="330" y2="338" stroke="#27ae60" stroke-width="2" marker-end="url(#arrow-star)"/>
+  <text x="290" y="332" font-size="10" fill="#27ae60" font-weight="bold">customer_key</text>
+
+  <!-- dim_product → fact_sales (right to center) -->
+  <line x1="675" y1="350" x2="630" y2="358" stroke="#e67e22" stroke-width="2" marker-end="url(#arrow-star)"/>
+  <text x="636" y="348" font-size="10" fill="#e67e22" font-weight="bold">product_key</text>
+
+  <!-- dim_employee → fact_sales (bottom to center) — dashed because no FK in schema but conceptually related -->
+  <line x1="480" y1="465" x2="480" y2="520" stroke="#8e44ad" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="488" y="505" font-size="10" fill="#8e44ad">employee (no FK in fact_sales)</text>
+</svg>

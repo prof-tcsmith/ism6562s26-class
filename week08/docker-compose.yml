@@ -1,0 +1,225 @@
+
+# Custom Hadoop images with Python 3.11 for ISM 6562 course
+# Images maintained at: https://hub.docker.com/u/tcsmith314
+# Based on Hadoop 3.2.1
+
+services:
+  # ===========================
+  # HDFS Components
+  # ===========================
+
+  namenode:
+    image: tcsmith314/hadoop-namenode-python311:3.2.1
+    container_name: hadoop-namenode
+    hostname: namenode
+    ports:
+      - "9870:9870"  # NameNode Web UI
+      - "9000:9000"  # HDFS
+    environment:
+      - CLUSTER_NAME=hadoop-cluster
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_hadoop_http_staticuser_user=root
+      - HDFS_CONF_dfs_namenode_name_dir=file:///hadoop/dfs/name
+      - HDFS_CONF_dfs_permissions_enabled=false
+      - HDFS_CONF_dfs_webhdfs_enabled=true
+      - HDFS_CONF_dfs_replication=2
+    volumes:
+      - namenode_data:/hadoop/dfs/name
+      - ./data:/data
+      - ./scripts:/scripts
+    networks:
+      - hadoop-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9870"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  datanode1:
+    image: tcsmith314/hadoop-datanode-python311:3.2.1
+    container_name: hadoop-datanode1
+    hostname: datanode1
+    ports:
+      - "9864:9864"  # DataNode1 Web UI
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_hadoop_http_staticuser_user=root
+      - HDFS_CONF_dfs_datanode_data_dir=file:///hadoop/dfs/data
+      - HDFS_CONF_dfs_permissions_enabled=false
+    volumes:
+      - datanode1_data:/hadoop/dfs/data
+    networks:
+      - hadoop-network
+    depends_on:
+      namenode:
+        condition: service_healthy
+
+  datanode2:
+    image: tcsmith314/hadoop-datanode-python311:3.2.1
+    container_name: hadoop-datanode2
+    hostname: datanode2
+    ports:
+      - "9865:9864"  # DataNode2 Web UI
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_hadoop_http_staticuser_user=root
+      - HDFS_CONF_dfs_datanode_data_dir=file:///hadoop/dfs/data
+      - HDFS_CONF_dfs_permissions_enabled=false
+    volumes:
+      - datanode2_data:/hadoop/dfs/data
+    networks:
+      - hadoop-network
+    depends_on:
+      namenode:
+        condition: service_healthy
+
+  datanode3:
+    image: tcsmith314/hadoop-datanode-python311:3.2.1
+    container_name: hadoop-datanode3
+    hostname: datanode3
+    ports:
+      - "9866:9864"  # DataNode3 Web UI
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_hadoop_http_staticuser_user=root
+      - HDFS_CONF_dfs_datanode_data_dir=file:///hadoop/dfs/data
+      - HDFS_CONF_dfs_permissions_enabled=false
+    volumes:
+      - datanode3_data:/hadoop/dfs/data
+    networks:
+      - hadoop-network
+    depends_on:
+      namenode:
+        condition: service_healthy
+
+  # ===========================
+  # YARN Components
+  # ===========================
+
+  resourcemanager:
+    image: tcsmith314/hadoop-resourcemanager-python311:3.2.1
+    container_name: hadoop-resourcemanager
+    hostname: resourcemanager
+    ports:
+      - "8088:8088"  # ResourceManager Web UI
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_hadoop_http_staticuser_user=root
+      - YARN_CONF_yarn_resourcemanager_hostname=resourcemanager
+      - YARN_CONF_yarn_resourcemanager_address=resourcemanager:8032
+      - YARN_CONF_yarn_resourcemanager_scheduler_address=resourcemanager:8030
+      - YARN_CONF_yarn_resourcemanager_resource__tracker_address=resourcemanager:8031
+      - YARN_CONF_yarn_log_aggregation_enable=true
+      - YARN_CONF_yarn_nodemanager_remote__app__log__dir=/app-logs
+    networks:
+      - hadoop-network
+    depends_on:
+      namenode:
+        condition: service_healthy
+
+  nodemanager1:
+    image: tcsmith314/hadoop-nodemanager-python311:3.2.1
+    container_name: hadoop-nodemanager1
+    hostname: nodemanager1
+    ports:
+      - "8042:8042"  # NodeManager1 Web UI
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_hadoop_http_staticuser_user=root
+      - YARN_CONF_yarn_resourcemanager_hostname=resourcemanager
+      - YARN_CONF_yarn_resourcemanager_address=resourcemanager:8032
+      - YARN_CONF_yarn_nodemanager_aux__services=mapreduce_shuffle
+      - YARN_CONF_yarn_nodemanager_resource_memory__mb=4096
+      - YARN_CONF_yarn_nodemanager_resource_cpu__vcores=2
+      - YARN_CONF_yarn_nodemanager_vmem__check__enabled=false
+      - YARN_CONF_yarn_log_aggregation_enable=true
+      - YARN_CONF_yarn_nodemanager_remote__app__log__dir=/app-logs
+    volumes:
+      - nodemanager1_data:/hadoop/yarn/local
+    networks:
+      - hadoop-network
+    depends_on:
+      - resourcemanager
+
+  nodemanager2:
+    image: tcsmith314/hadoop-nodemanager-python311:3.2.1
+    container_name: hadoop-nodemanager2
+    hostname: nodemanager2
+    ports:
+      - "8043:8042"  # NodeManager2 Web UI
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_hadoop_http_staticuser_user=root
+      - YARN_CONF_yarn_resourcemanager_hostname=resourcemanager
+      - YARN_CONF_yarn_resourcemanager_address=resourcemanager:8032
+      - YARN_CONF_yarn_nodemanager_aux__services=mapreduce_shuffle
+      - YARN_CONF_yarn_nodemanager_resource_memory__mb=4096
+      - YARN_CONF_yarn_nodemanager_resource_cpu__vcores=2
+      - YARN_CONF_yarn_nodemanager_vmem__check__enabled=false
+      - YARN_CONF_yarn_log_aggregation_enable=true
+      - YARN_CONF_yarn_nodemanager_remote__app__log__dir=/app-logs
+    volumes:
+      - nodemanager2_data:/hadoop/yarn/local
+    networks:
+      - hadoop-network
+    depends_on:
+      - resourcemanager
+
+  nodemanager3:
+    image: tcsmith314/hadoop-nodemanager-python311:3.2.1
+    container_name: hadoop-nodemanager3
+    hostname: nodemanager3
+    ports:
+      - "8044:8042"  # NodeManager3 Web UI
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_hadoop_http_staticuser_user=root
+      - YARN_CONF_yarn_resourcemanager_hostname=resourcemanager
+      - YARN_CONF_yarn_resourcemanager_address=resourcemanager:8032
+      - YARN_CONF_yarn_nodemanager_aux__services=mapreduce_shuffle
+      - YARN_CONF_yarn_nodemanager_resource_memory__mb=4096
+      - YARN_CONF_yarn_nodemanager_resource_cpu__vcores=2
+      - YARN_CONF_yarn_nodemanager_vmem__check__enabled=false
+      - YARN_CONF_yarn_log_aggregation_enable=true
+      - YARN_CONF_yarn_nodemanager_remote__app__log__dir=/app-logs
+    volumes:
+      - nodemanager3_data:/hadoop/yarn/local
+    networks:
+      - hadoop-network
+    depends_on:
+      - resourcemanager
+
+  # ===========================
+  # MapReduce History Server
+  # ===========================
+
+  historyserver:
+    image: bde2020/hadoop-historyserver:2.0.0-hadoop3.2.1-java8
+    container_name: hadoop-historyserver
+    hostname: historyserver
+    ports:
+      - "8188:8188"  # History Server Web UI (actual port)
+    environment:
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:9000
+      - CORE_CONF_hadoop_http_staticuser_user=root
+      - YARN_CONF_yarn_log_aggregation_enable=true
+      - YARN_CONF_yarn_nodemanager_remote__app__log__dir=/app-logs
+    networks:
+      - hadoop-network
+    depends_on:
+      namenode:
+        condition: service_healthy
+
+networks:
+  hadoop-network:
+    driver: bridge
+
+volumes:
+  namenode_data:
+  datanode1_data:
+  datanode2_data:
+  datanode3_data:
+  nodemanager1_data:
+  nodemanager2_data:
+  nodemanager3_data:

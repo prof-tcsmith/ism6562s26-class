@@ -1,0 +1,29 @@
+# Claude Code project rules — never publish
+CLAUDE.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Quarto build artifacts
+.quarto/
+*_cache/
+
+# Docker data volumes (local only)
+**/zookeeper/
+**/kafka-logs/
+**/hadoop/dfs/
+**/postgres-data/
+**/cassandra-data/

@@ -1,0 +1,86 @@
+# Week 05 — 3-Node Cassandra Cluster
+# This spins up a peer-to-peer Cassandra ring with no master node.
+# Connect to any node via cqlsh: docker exec -it cassandra-node1 cqlsh
+
+networks:
+  cassandra-network:
+    driver: bridge
+
+volumes:
+  cassandra_data1:
+  cassandra_data2:
+  cassandra_data3:
+
+services:
+  cassandra-node1:
+    image: cassandra:4.1
+    container_name: cassandra-node1
+    ports:
+      - "9042:9042"       # CQL native transport (client connections)
+    environment:
+      # All nodes must share the same cluster name to form a ring
+      - CASSANDRA_CLUSTER_NAME=ProductionCluster
+      # Seed nodes are the first contact point for gossip protocol discovery.
+      # New nodes contact a seed to learn about the rest of the cluster.
+      - CASSANDRA_SEEDS=cassandra-node1
+      # Number of virtual nodes (vnodes) per physical node.
+      # More vnodes = more even data distribution across the ring.
+      - CASSANDRA_NUM_TOKENS=256
+      # Required for Docker: tells Cassandra to listen on this container's
+      # network hostname instead of localhost
+      - CASSANDRA_LISTEN_ADDRESS=cassandra-node1
+    volumes:
+      - cassandra_data1:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "nodetool status | grep UN"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - cassandra-network
+
+  cassandra-node2:
+    image: cassandra:4.1
+    container_name: cassandra-node2
+    ports:
+      - "9043:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=ProductionCluster
+      - CASSANDRA_SEEDS=cassandra-node1
+      - CASSANDRA_NUM_TOKENS=256
+      - CASSANDRA_LISTEN_ADDRESS=cassandra-node2
+    volumes:
+      - cassandra_data2:/var/lib/cassandra
+    depends_on:
+      cassandra-node1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nodetool status | grep UN"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - cassandra-network
+
+  cassandra-node3:
+    image: cassandra:4.1
+    container_name: cassandra-node3
+    ports:
+      - "9044:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=ProductionCluster
+      - CASSANDRA_SEEDS=cassandra-node1
+      - CASSANDRA_NUM_TOKENS=256
+      - CASSANDRA_LISTEN_ADDRESS=cassandra-node3
+    volumes:
+      - cassandra_data3:/var/lib/cassandra
+    depends_on:
+      cassandra-node1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nodetool status | grep UN"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - cassandra-network
