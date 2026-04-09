@@ -9,7 +9,7 @@ services:
   # ===========================
 
   namenode:
-    image: tcsmith314/hadoop-namenode-python311:3.2.1
+    image: tcsmith314/hadoop-namenode-python311:latest
     container_name: hadoop-namenode
     hostname: namenode
     ports:
@@ -37,7 +37,7 @@ services:
       start_period: 60s
 
   datanode1:
-    image: tcsmith314/hadoop-datanode-python311:3.2.1
+    image: tcsmith314/hadoop-datanode-python311:latest
     container_name: hadoop-datanode1
     hostname: datanode1
     ports:
@@ -56,7 +56,7 @@ services:
         condition: service_healthy
 
   datanode2:
-    image: tcsmith314/hadoop-datanode-python311:3.2.1
+    image: tcsmith314/hadoop-datanode-python311:latest
     container_name: hadoop-datanode2
     hostname: datanode2
     ports:
@@ -75,7 +75,7 @@ services:
         condition: service_healthy
 
   datanode3:
-    image: tcsmith314/hadoop-datanode-python311:3.2.1
+    image: tcsmith314/hadoop-datanode-python311:latest
     container_name: hadoop-datanode3
     hostname: datanode3
     ports:
@@ -98,7 +98,7 @@ services:
   # ===========================
 
   resourcemanager:
-    image: tcsmith314/hadoop-resourcemanager-python311:3.2.1
+    image: tcsmith314/hadoop-resourcemanager-python311:latest
     container_name: hadoop-resourcemanager
     hostname: resourcemanager
     ports:
@@ -119,7 +119,7 @@ services:
         condition: service_healthy
 
   nodemanager1:
-    image: tcsmith314/hadoop-nodemanager-python311:3.2.1
+    image: tcsmith314/hadoop-nodemanager-python311:latest
     container_name: hadoop-nodemanager1
     hostname: nodemanager1
     ports:
@@ -143,7 +143,7 @@ services:
       - resourcemanager
 
   nodemanager2:
-    image: tcsmith314/hadoop-nodemanager-python311:3.2.1
+    image: tcsmith314/hadoop-nodemanager-python311:latest
     container_name: hadoop-nodemanager2
     hostname: nodemanager2
     ports:
@@ -167,7 +167,7 @@ services:
       - resourcemanager
 
   nodemanager3:
-    image: tcsmith314/hadoop-nodemanager-python311:3.2.1
+    image: tcsmith314/hadoop-nodemanager-python311:latest
     container_name: hadoop-nodemanager3
     hostname: nodemanager3
     ports:
