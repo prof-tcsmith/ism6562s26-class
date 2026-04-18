@@ -1,12 +1,33 @@
-# Custom Spark 3.5.0 image that adds a jovyan user (uid 1000) so that the
-# Spark master/workers can run at the same uid as the jupyter container.
-# Without this, the driver (running in jupyter as uid 1000) creates output
-# directories that the workers (running as uid 185) cannot write inside,
-# breaking any spark.write call.
+# Custom Spark 3.5.0 image with two fixes:
+#
+# 1) jovyan user (uid 1000) matching the jupyter container's uid. Without this,
+#    the driver (in jupyter as uid 1000) creates output directories the workers
+#    (apache/spark:3.5.0's native user is uid 185) cannot write into.
+#
+# 2) Python 3.11 installed and exported as PYSPARK_PYTHON. The
+#    jupyter/pyspark-notebook:spark-3.5.0 image ships Python 3.11 for the
+#    Driver; apache/spark:3.5.0 ships Python 3.8 for the Executors. Any
+#    .show() or similar action triggers a PYTHON_VERSION_MISMATCH error
+#    because Spark pickles data between driver and workers and requires
+#    matching minor versions. Installing Python 3.11 here and pointing
+#    PYSPARK_PYTHON at it makes every task on the workers use 3.11.
 FROM apache/spark:3.5.0
 
 USER root
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
+    curl -fsSL https://repo.anaconda.com/miniconda/Miniconda3-py311_25.1.1-2-Linux-x86_64.sh \
+         -o /tmp/miniconda.sh && \
+    bash /tmp/miniconda.sh -b -p /opt/miniconda && \
+    rm /tmp/miniconda.sh && \
+    /opt/miniconda/bin/conda clean -afy && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN groupadd -g 100 users 2>/dev/null || true && \
     useradd -u 1000 -g 100 -m -s /bin/bash jovyan && \
     chown -R 1000:100 /opt/spark
+
+ENV PYSPARK_PYTHON=/opt/miniconda/bin/python3
+
 USER 1000:100

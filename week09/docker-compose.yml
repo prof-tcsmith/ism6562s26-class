@@ -141,6 +141,13 @@ services:
       - JUPYTER_TOKEN=spark
       - SPARK_MASTER=spark://spark-master:7077
       - PYSPARK_SUBMIT_ARGS=--master spark://spark-master:7077 pyspark-shell
+      # jupyter/pyspark-notebook:spark-3.5.0 ships Python 3.11 for the driver;
+      # apache/spark:3.5.0 ships Python 3.8 for the executors. Our custom
+      # spark-jovyan image installs Python 3.11 via miniconda at
+      # /opt/miniconda/bin/python3 — point PYSPARK_PYTHON at it so workers
+      # invoke 3.11 (matching the driver) and pickled data can flow cleanly.
+      - PYSPARK_PYTHON=/opt/miniconda/bin/python3
+      - PYSPARK_DRIVER_PYTHON=/opt/conda/bin/python3
     volumes:
       - ./notebooks:/home/jovyan/notebooks
       - ./data:/home/jovyan/data
