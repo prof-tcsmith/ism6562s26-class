@@ -1,0 +1,10 @@
+# Custom Spark 3.5.0 image with a jovyan user (uid 1000) so the
+# Spark master/workers can read AND write the bind-mounted ./data
+# directory. Without this, anything writing to /data fails because
+# the apache/spark image's default user (185) doesn't own the host dir.
+FROM apache/spark:3.5.0
+USER root
+RUN groupadd -g 100 users 2>/dev/null || true && \
+    useradd -u 1000 -g 100 -m -s /bin/bash jovyan && \
+    chown -R 1000:100 /opt/spark
+USER 1000:100

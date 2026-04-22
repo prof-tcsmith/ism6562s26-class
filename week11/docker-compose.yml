@@ -1,0 +1,259 @@
+
+# ISM 6562 — Week 11: Pipeline Orchestration & the Modern Data Stack
+# Apache Airflow + Spark for scheduled, observable data pipelines
+#
+# Services:
+#   postgres          — Airflow metadata database (stores DAG state, task history)
+#   airflow-init      — One-shot container: initializes DB schema + creates admin user
+#   airflow-webserver — Web UI at port 8080 (DAG visualization, task logs, trigger runs)
+#   airflow-scheduler — Monitors DAGs in /opt/airflow/dags, schedules task execution
+#   spark-master      — Spark master node (UI on port 8081 to avoid conflict with Airflow)
+#   spark-worker      — Spark worker (2 cores, 2 GB RAM for lab workloads)
+#
+# Usage:
+#   docker compose up -d
+#   Open http://localhost:8080  for Airflow Web UI (admin / admin)
+#   Open http://localhost:8081  for Spark Master UI
+#
+# Architecture:
+#   Airflow Scheduler → triggers DAG tasks → BashOperator / PythonOperator
+#   Airflow can submit Spark jobs via BashOperator (spark-submit to spark-master:7077)
+#   Shared /data volume lets Airflow tasks read/write files that Spark jobs process
+
+services:
+  # ===========================
+  # PostgreSQL (Airflow Metadata DB)
+  # ===========================
+  # Stores all Airflow metadata: DAG definitions, task instance states, XCom values,
+  # connection/variable configs, and scheduler bookkeeping.
+  # LocalExecutor requires a real database (SQLite only works with SequentialExecutor).
+
+  postgres:
+    image: postgres:15
+    container_name: airflow-postgres
+    hostname: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: airflow
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - orchestration-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ===========================
+  # Airflow Init (One-Shot)
+  # ===========================
+  # Runs once to: (1) initialize/upgrade the metadata DB schema, and
+  # (2) create an admin user so students can log in immediately.
+  # The container exits after setup completes — this is expected behavior.
+
+  airflow-init:
+    # Custom airflow image with pyspark installed -- gives DAGs spark-submit
+    # so students can submit real Spark jobs from BashOperator/SparkSubmitOperator
+    # tasks against the bundled spark-master:7077. Building locally takes <30s
+    # the first time and the layer is cached afterwards.
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.airflow
+    image: ism6562/airflow-spark:2.8.1
+    container_name: airflow-init
+    # Run airflow as uid 1000 (matches the spark master/workers' jovyan user)
+    # so output dirs created by the airflow scheduler/driver can be written
+    # to by the spark executors. Group 0 (root) is what Airflow's official
+    # docker-compose recommends for non-default uids.
+    user: "1000:0"
+    entrypoint: /bin/bash
+    # Note: written as a single quoted string (not YAML multi-line) so the
+    # arguments to `airflow users create` stay on one shell line. The earlier
+    # multi-line form was parsed as separate bash commands, the create call
+    # silently failed, and no admin user existed at runtime.
+    command:
+      - "-c"
+      - "airflow db migrate && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      # Required when running as uid 1000:0 -- without an /etc/passwd entry
+      # for uid 1000, HOME defaults to "/" and python can't locate the
+      # airflow package installed under /home/airflow/.local
+      HOME: /home/airflow
+    networks:
+      - orchestration-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ===========================
+  # Airflow Webserver
+  # ===========================
+  # Serves the Airflow UI at port 8080. Students use this to:
+  #   - Visualize DAG structure (graph and tree views)
+  #   - Trigger manual DAG runs
+  #   - Inspect task logs and XCom values
+  #   - Monitor pipeline health and SLA misses
+  #
+  # EXPOSE_CONFIG=True lets students view the running Airflow configuration
+  # in the UI — useful for understanding executor and connection settings.
+
+  airflow-webserver:
+    image: ism6562/airflow-spark:2.8.1
+    container_name: airflow-webserver
+    hostname: airflow-webserver
+    user: "1000:0"   # match the spark uid -- see airflow-init comment
+    command: airflow webserver
+    ports:
+      - "8080:8080"   # Airflow Web UI
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
+      HOME: /home/airflow   # see airflow-init comment for why
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./data:/opt/airflow/data
+      - airflow-logs:/opt/airflow/logs
+    networks:
+      - orchestration-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ===========================
+  # Airflow Scheduler
+  # ===========================
+  # The brain of Airflow: continuously scans /opt/airflow/dags for DAG files,
+  # evaluates schedule intervals, checks task dependencies, and queues tasks
+  # for execution. With LocalExecutor, tasks run as subprocesses on this container.
+
+  airflow-scheduler:
+    image: ism6562/airflow-spark:2.8.1
+    container_name: airflow-scheduler
+    hostname: airflow-scheduler
+    user: "1000:0"   # match the spark uid -- see airflow-init comment
+    command: airflow scheduler
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
+      HOME: /home/airflow   # see airflow-init comment for why
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./data:/opt/airflow/data
+      - airflow-logs:/opt/airflow/logs
+    networks:
+      - orchestration-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+
+  # ===========================
+  # Spark Master
+  # ===========================
+  # Coordinates the Spark cluster. Airflow submits Spark jobs here via
+  # BashOperator running spark-submit against spark://spark-master:7077.
+  # Web UI on port 8081 (8080 is taken by Airflow).
+
+  spark-master:
+    # Custom Spark image with a jovyan user (uid 1000) so master/workers can
+    # write the bind-mounted ./data directory. Without this, real Spark jobs
+    # submitted from Airflow that try to write Parquet to /opt/airflow/data
+    # would fail with "Mkdirs failed: Permission denied".
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.spark
+    image: ism6562/spark-jovyan:3.5.0
+    container_name: spark-master
+    hostname: spark-master
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    ports:
+      - "8081:8080"   # Spark Master Web UI (host 8081 → container 8080)
+      - "7077:7077"   # Spark Master RPC port
+    environment:
+      - SPARK_MODE=master
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_MASTER_PORT=7077
+      - SPARK_MASTER_WEBUI_PORT=8080
+    volumes:
+      # Mount at /opt/airflow/data so the path is consistent with the airflow
+      # containers (which mount the same dir at the same path). This way
+      # an Airflow DAG can spark-submit a job that reads/writes
+      # /opt/airflow/data/... and both the airflow container AND the spark
+      # workers see the same files at the same path.
+      - ./data:/opt/airflow/data
+    networks:
+      - orchestration-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ===========================
+  # Spark Worker
+  # ===========================
+  # Executes tasks assigned by the Spark master. Configured with 2 cores and
+  # 2 GB RAM — sufficient for lab workloads without overwhelming student laptops.
+
+  spark-worker:
+    image: ism6562/spark-jovyan:3.5.0
+    container_name: spark-worker
+    hostname: spark-worker
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    ports:
+      - "8082:8081"   # Worker Web UI
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_MEMORY=2g
+      - SPARK_WORKER_WEBUI_PORT=8081
+    volumes:
+      # Mount at the same path as the airflow containers so spark-submit jobs
+      # from airflow that reference /opt/airflow/data/... resolve correctly.
+      - ./data:/opt/airflow/data
+    networks:
+      - orchestration-network
+    depends_on:
+      spark-master:
+        condition: service_healthy
+
+# ===========================
+# Network
+# ===========================
+# Dedicated bridge network isolates the orchestration pipeline services.
+
+networks:
+  orchestration-network:
+    driver: bridge
+
+# ===========================
+# Named Volumes
+# ===========================
+# Persist Postgres data and Airflow logs across container restarts.
+
+volumes:
+  postgres-data:
+  airflow-logs:

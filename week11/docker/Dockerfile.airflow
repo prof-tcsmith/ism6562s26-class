@@ -1,0 +1,38 @@
+# Custom Airflow 2.8.1 image with pyspark + Java so DAGs can call
+# spark-submit to submit jobs against the spark-master container.
+#
+# Why python 3.8 (not 3.11)?
+#   The apache/spark:3.5.0 base image ships with python 3.8. PySpark requires
+#   the driver and workers to use the SAME minor version, otherwise tasks
+#   fail with PySparkRuntimeError [PYTHON_VERSION_MISMATCH]. Pinning the
+#   airflow image to python 3.8 keeps both sides aligned.
+#
+# Why install Java + procps?
+#   pyspark spawns a JVM via spark-submit, and Java is not in the default
+#   airflow image. spark-submit's load-spark-env.sh also calls 'ps' which
+#   needs procps.
+#
+# Why add a jovyan passwd entry?
+#   We run the airflow containers as user "1000:0" in compose, to match the
+#   spark master/workers (which are uid 1000). But uid 1000 has no entry in
+#   the airflow image's /etc/passwd, which causes:
+#     - HOME defaults to "/" (so airflow can't find its python packages)
+#     - airflow's getuser() raises AirflowConfigException at startup
+#   Adding the passwd entry below fixes both: HOME resolves to /home/airflow
+#   and getuser() returns "jovyan".
+FROM apache/airflow:2.8.1-python3.8
+
+USER root
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        openjdk-17-jre-headless \
+        procps && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    echo "jovyan:x:1000:0::/home/airflow:/bin/bash" >> /etc/passwd
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+USER airflow
+RUN pip install --no-cache-dir \
+    pyspark==3.5.0 \
+    apache-airflow-providers-apache-spark==4.7.1
