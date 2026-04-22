@@ -1,8 +1,27 @@
-# Final Project Data
+# Final Project
 
-Raw datasets for the ten final-project scenarios. Each student team works on one scenario; the project brief (released separately) tells you which files to load and how to use them.
+Materials for the ISM 6562 final project: ten scenarios, one per team.
 
-## Layout
+## Project brief
+
+Open [`ism6562-final-project.html`](ism6562-final-project.html) for the full brief — goals, requirements, stages, rubric, academic-integrity policy, and team logistics. Read this first.
+
+## Scenarios
+
+| # | Project | Industry | Core challenge |
+|---|---------|----------|----------------|
+| 01 | SmartGrid Energy | Utilities / Energy | Real-time grid load balancing and outage prediction |
+| 02 | CityTransit Mobility | Transportation | Route optimization and ridership forecasting |
+| 03 | AgriFlow Farming | Agriculture | Crop yield prediction and irrigation optimization |
+| 04 | MediStream Telehealth | Healthcare / Telehealth | Remote patient monitoring and appointment analytics |
+| 05 | FinPulse Fraud | Financial Services | Transaction fraud detection and risk scoring |
+| 06 | CampusIQ University | Higher Education | Student success prediction and resource optimization |
+| 07 | Sportlytics Athletics | Sports Analytics | Player performance tracking and injury prediction |
+| 08 | SupplyChain Manufacturing | Manufacturing / Logistics | Inventory optimization and defect prediction |
+| 09 | ClimaSense Environment | Environmental Science | Air quality monitoring and pollution forecasting |
+| 10 | MediaWave Streaming | Media / Entertainment | Content recommendation and viewer engagement analytics |
+
+## Data layout
 
 ```
 final-projects/data/
@@ -26,4 +45,4 @@ From a notebook running inside your lab's Docker network, prefer cloning this re
 https://raw.githubusercontent.com/prof-tcsmith/ism6562s26-class/main/final-projects/data/<project-slug>/<file>
 ```
 
-Project briefs, rubrics, and milestone deadlines will be posted on Canvas.
+Milestone deadlines, team assignments, and submission links are posted on Canvas.
