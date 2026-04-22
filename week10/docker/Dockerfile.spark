@@ -1,0 +1,12 @@
+# Custom Spark 3.5.0 image that adds a jovyan user (uid 1000) so the
+# Spark master/workers can run at the same uid as the jupyter container.
+# Without this, the driver creates output directories the workers cannot
+# write inside (Mkdirs Permission denied), because each image's /etc/passwd
+# has only its own native user and Hadoop's UGI security manager refuses to
+# start if the running uid has no passwd entry.
+FROM apache/spark:3.5.0
+USER root
+RUN groupadd -g 100 users 2>/dev/null || true && \
+    useradd -u 1000 -g 100 -m -s /bin/bash jovyan && \
+    chown -R 1000:100 /opt/spark
+USER 1000:100
