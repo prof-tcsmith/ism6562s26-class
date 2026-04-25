@@ -12,16 +12,16 @@ Each scenario is a fictional company with its own data sources, business questio
 
 | # | Project | Industry | Core challenge |
 |---|---------|----------|----------------|
-| 01 | [SmartGrid Energy — VoltEdge Power](projects/01-smartgrid-energy/scenario.html) | Utilities / Energy | Real-time grid load balancing and outage prediction |
-| 02 | [CityTransit Mobility — MetroLink Transit](projects/02-citytransit-mobility/scenario.html) | Transportation | Route optimization and ridership forecasting |
-| 03 | [AgriFlow Farming](projects/03-agriflow-farming/scenario.html) | Agriculture | Crop yield prediction and irrigation optimization |
-| 04 | [MediStream Telehealth](projects/04-medistream-telehealth/scenario.html) | Healthcare / Telehealth | Remote patient monitoring and appointment analytics |
-| 05 | [FinPulse Fraud](projects/05-finpulse-fraud/scenario.html) | Financial Services | Transaction fraud detection and risk scoring |
-| 06 | [CampusIQ University](projects/06-campusiq-university/scenario.html) | Higher Education | Student success prediction and resource optimization |
-| 07 | [Sportlytics Athletics](projects/07-sportlytics-athletics/scenario.html) | Sports Analytics | Player performance tracking and injury prediction |
-| 08 | [SupplyChain Manufacturing — PrecisionParts](projects/08-supplychain-manufacturing/scenario.html) | Manufacturing / Logistics | Inventory optimization and defect prediction |
-| 09 | [ClimaSense Environment](projects/09-climasense-environment/scenario.html) | Environmental Science | Air quality monitoring and pollution forecasting |
-| 10 | [MediaWave Streaming](projects/10-mediawave-streaming/scenario.html) | Media / Entertainment | Content recommendation and viewer engagement analytics |
+| 01 | [SmartGrid Energy — VoltEdge Power](projects/01-smartgrid-energy/scenario.md) | Utilities / Energy | Real-time grid load balancing and outage prediction |
+| 02 | [CityTransit Mobility — MetroLink Transit](projects/02-citytransit-mobility/scenario.md) | Transportation | Route optimization and ridership forecasting |
+| 03 | [AgriFlow Farming](projects/03-agriflow-farming/scenario.md) | Agriculture | Crop yield prediction and irrigation optimization |
+| 04 | [MediStream Telehealth](projects/04-medistream-telehealth/scenario.md) | Healthcare / Telehealth | Remote patient monitoring and appointment analytics |
+| 05 | [FinPulse Fraud](projects/05-finpulse-fraud/scenario.md) | Financial Services | Transaction fraud detection and risk scoring |
+| 06 | [CampusIQ University](projects/06-campusiq-university/scenario.md) | Higher Education | Student success prediction and resource optimization |
+| 07 | [Sportlytics Athletics](projects/07-sportlytics-athletics/scenario.md) | Sports Analytics | Player performance tracking and injury prediction |
+| 08 | [SupplyChain Manufacturing — PrecisionParts](projects/08-supplychain-manufacturing/scenario.md) | Manufacturing / Logistics | Inventory optimization and defect prediction |
+| 09 | [ClimaSense Environment](projects/09-climasense-environment/scenario.md) | Environmental Science | Air quality monitoring and pollution forecasting |
+| 10 | [MediaWave Streaming](projects/10-mediawave-streaming/scenario.md) | Media / Entertainment | Content recommendation and viewer engagement analytics |
 
 ## Repository layout
 
@@ -30,10 +30,10 @@ final-projects/
 ├── README.md
 ├── ism6562-final-project.html      ← master brief (read first)
 ├── projects/
-│   ├── 01-smartgrid-energy/scenario.html
-│   ├── 02-citytransit-mobility/scenario.html
+│   ├── 01-smartgrid-energy/scenario.md
+│   ├── 02-citytransit-mobility/scenario.md
 │   ├── ...
-│   └── 10-mediawave-streaming/scenario.html
+│   └── 10-mediawave-streaming/scenario.md
 └── data/
     ├── 01-smartgrid-energy/
     ├── 02-citytransit-mobility/
