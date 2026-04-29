@@ -140,7 +140,10 @@ services:
     ports:
       - "8080:8080"   # Spark Master Web UI
       - "7077:7077"   # Spark Master RPC port (workers + drivers connect here)
-      - "4040:4040"   # Spark Application UI (active while a streaming job runs)
+      # NOTE: port 4040 (Spark Application UI) is published from the jupyter
+      # service, not here. PySpark in Jupyter uses client deploy mode, so the
+      # driver — and therefore the Application UI — runs inside the jupyter
+      # container, not on the master.
     environment:
       - SPARK_MODE=master
       - SPARK_MASTER_HOST=spark-master
@@ -223,6 +226,8 @@ services:
     hostname: streaming-jupyter
     ports:
       - "8888:8888"   # Jupyter Notebook UI
+      - "4040:4040"   # Spark Application UI (driver runs here in client mode)
+      - "4041:4041"   # Fallback Application UI port if 4040 is taken
     environment:
       - JUPYTER_TOKEN=spark
       - SPARK_MASTER=spark://spark-master:7077
