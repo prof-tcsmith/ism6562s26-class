@@ -149,6 +149,10 @@ validate >> quality   # ordering guarantees push happens before pull`}),n.jsx(x,
 docker compose up -d
 docker compose ps                    # all healthy?
 
+# One-shot health check — verifies all services, ports,
+# bind-mounts, and DAG parsing in a single command:
+python3 validate_setup.py
+
 # Web UI: http://localhost:8080
 # Username: admin   Password: admin`}),n.jsx(z,{size:"0.85rem",children:n.jsx("strong",{children:"2. Drop in a new DAG"})}),n.jsx(Z,{fontSize:"0.66rem",language:"bash",code:`# Anything in ./dags is mounted at /opt/airflow/dags
 # inside the scheduler. Picked up within ~30 seconds.
