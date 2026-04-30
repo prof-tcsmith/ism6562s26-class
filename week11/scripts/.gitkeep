@@ -1,0 +1,17 @@
+# Drop your operator-invoked scripts here.
+#
+# This folder is bind-mounted to /opt/airflow/scripts inside the
+# airflow-webserver and airflow-scheduler containers. A BashOperator
+# can invoke files placed here, for example:
+#
+#   BashOperator(
+#       task_id="transform",
+#       bash_command="python /opt/airflow/scripts/transform.py {{ ds }}",
+#   )
+#
+# Files appear inside the containers immediately on save (no rebuild).
+#
+# DAG definition files (.py with `with DAG(...):` blocks) belong in
+# ../dags/, not here. The Airflow scheduler scans dags/ every ~30 s
+# looking for DAG objects to register; scripts in this folder are
+# only read at task run time when an operator references them by path.

@@ -129,6 +129,12 @@ with DAG(
 ) as dag:
 
     # --- Task 1: Ingest the daily patient feed ---
+    # Real version (production): pull the day's feed from S3/SFTP/API and copy it
+    # into the staging zone. Something like:
+    #     aws s3 cp s3://healthpulse-feeds/patients/{{ ds }}.csv /data/staging/ \
+    #       && hdfs dfs -put -f /data/staging/{{ ds }}.csv /data-lake/landing/
+    # We echo here so the DAG runs end-to-end without S3 credentials or a
+    # real source feed wired into the Airflow image.
     ingest = BashOperator(
         task_id="ingest_patient_feed",
         bash_command=(
@@ -145,6 +151,14 @@ with DAG(
     )
 
     # --- Task 3a: Transform data (diamond left branch) ---
+    # Real version (production): submit a PySpark job to the cluster that
+    # reads the staging CSV, standardizes ICD codes, computes per-department
+    # cost quartiles, and deduplicates. Something like:
+    #     spark-submit \
+    #       --master spark://spark-master:7077 \
+    #       /scripts/transform_patients.py --date {{ ds }}
+    # We echo here so the DAG runs without a Spark cluster wired into the
+    # Airflow image (the Week 11 stack ships Airflow only).
     transform = BashOperator(
         task_id="transform_data",
         bash_command=(
@@ -163,6 +177,14 @@ with DAG(
     )
 
     # --- Task 4: Load to data warehouse (diamond join) ---
+    # Real version (production): publish the transformed partition into the
+    # warehouse (Postgres / Snowflake / BigQuery). Something like:
+    #     psql -h warehouse-host -d analytics -c "
+    #       INSERT INTO warehouse.patient_facts
+    #       SELECT * FROM staging.patients_curated WHERE dt = '{{ ds }}'"
+    # We echo here so the DAG runs without a warehouse connection. In
+    # production this task would also be the one most worth making
+    # idempotent (e.g., DELETE-then-INSERT keyed on dt).
     load = BashOperator(
         task_id="load_to_warehouse",
         bash_command=(

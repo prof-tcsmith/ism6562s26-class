@@ -121,6 +121,7 @@ services:
       HOME: /home/airflow   # see airflow-init comment for why
     volumes:
       - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts   # operator-invoked Python/Spark/shell scripts
       - ./data:/opt/airflow/data
       - airflow-logs:/opt/airflow/logs
     networks:
@@ -158,6 +159,7 @@ services:
       HOME: /home/airflow   # see airflow-init comment for why
     volumes:
       - ./dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts   # operator-invoked Python/Spark/shell scripts
       - ./data:/opt/airflow/data
       - airflow-logs:/opt/airflow/logs
     networks:
